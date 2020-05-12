@@ -9,7 +9,7 @@ AUTHORITY = "https://login.microsoftonline.com/organizations"  # For multi-tenan
 
 CLIENT_ID = "eb6142be-0904-497e-ac47-f69297cffec4"
 
-REDIRECT_PATH = "/auth"  # It will be used to form an absolute URL
+REDIRECT_PATH = "/getAToken"  # It will be used to form an absolute URL
     # And that absolute URL must match your app's redirect_uri set in AAD
 
 # You can find more Microsoft Graph API endpoints from Graph Explorer

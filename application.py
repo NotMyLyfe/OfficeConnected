@@ -1,6 +1,6 @@
 import uuid, requests, msal, app_config
 from flask import Flask, render_template, session, request, redirect, url_for
-from flask_session import Session  # https://pythonhosted.org/Flask-Session
+from flask_session import Session
 
 app = Flask(__name__)
 
