@@ -22,3 +22,4 @@ SCOPE = ["User.ReadBasic.All"]
 
 SESSION_TYPE = "filesystem"  # So token cache will be stored in server-side session
 
+#PREFERED_URL_SCHEME = "https"
