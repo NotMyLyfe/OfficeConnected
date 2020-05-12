@@ -7,3 +7,6 @@ Werkzeug==0.14.1
 pymsteams==0.1.12
 o365==2.0.9
 future==0.18.2
+msal>=0,<2
+requests>=2,<3
+Flask-Session>=0,<1
