@@ -5,5 +5,5 @@ Jinja2==2.10
 MarkupSafe==1.0
 Werkzeug==0.14.1
 pymsteams==0.1.12
-o365==2.09
+o365==2.0.9
 future==0.18.2
