@@ -10,7 +10,7 @@ app = Flask(__name__)
 app.config.from_object(app_config)
 Session(app)
 
-testing = True
+testing = False
 if testing:
     protocolScheme = 'http'
 else:
