@@ -130,8 +130,4 @@ dmypy.json
 
 # VS Code
 .vscode/
-<<<<<<< HEAD
-=======
-
->>>>>>> fae29bf96f7aacddea865d401c53df6bdeff2695
 flask_session/
