@@ -5,10 +5,7 @@ Jinja2==2.10
 MarkupSafe==1.0
 Werkzeug==0.14.1
 pymsteams==0.1.12
-o365==2.0.9
 future==0.18.2
 msal>=0,<2
 requests>=2,<3
 Flask-Session>=0,<1
-requests-oauthlib==1.3.0
-pyodbc==4.0.30

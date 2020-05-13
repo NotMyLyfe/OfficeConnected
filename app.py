@@ -1,20 +1,22 @@
-import uuid, requests, msal, app_config
+import uuid
+import requests
 from flask import Flask, render_template, session, request, redirect, url_for
 from flask_session import Session
-from graph_helper import *
-from multiprocessing import Process, Value
-import pyodbc
+import msal
+import app_config
+
 
 app = Flask(__name__)
-
 app.config.from_object(app_config)
 Session(app)
 
-testing = True
+testing = False
+
 if testing:
     protocolScheme = 'http'
 else:
     protocolScheme = 'https'
+
 
 @app.route("/")
 def index():
@@ -28,7 +30,6 @@ def login():
     # Technically we could use empty list [] as scopes to do just sign in,
     # here we choose to also collect end user consent upfront
     auth_url = _build_auth_url(scopes=app_config.SCOPE, state=session["state"])
-
     return render_template("login.html", auth_url=auth_url, version=msal.__version__)
 
 @app.route(app_config.REDIRECT_PATH)  # Its absolute URL must match your app's redirect_uri set in AAD
@@ -100,9 +101,6 @@ def _get_token_from_cache(scope=None):
 
 app.jinja_env.globals.update(_build_auth_url=_build_auth_url)  # Used in template
 
-def interactWithOffice(tokens):
-    print("thing")
-
 if __name__ == "__main__":
-    #interaction = Process(target=interactWithOffice, args=)
     app.run()
+
