@@ -1,0 +1,13 @@
+{% extends "main/layout.html" %}
+{% block content %}
+<div class="jumbotron">
+  <h1>EdOffice</h1>
+  <p class="lead">Connecting Edsby with Office 365, one step at a time</p>
+  {% if user.is_authenticated %}
+    <h4>Welcome {{ user.name }}!</h4>
+    <p>Use the navigation bar at the top of the page to get started.</p>
+  {% else %}
+    <a href="{% url 'signin' %}" class="btn btn-primary btn-large">Click here to sign in (through Office 365)</a>
+  {% endif %}
+</div>
+{% endblock %}
