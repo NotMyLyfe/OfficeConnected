@@ -2,8 +2,8 @@ import uuid, requests, msal, app_config
 from flask import Flask, render_template, session, request, redirect, url_for
 from flask_session import Session
 from graph_helper import *
-from multiprocessing import Process, Value
-import pyodbc
+# from multiprocessing import Process, Value
+# import pyodbc
 
 app = Flask(__name__)
 
@@ -100,8 +100,8 @@ def _get_token_from_cache(scope=None):
 
 app.jinja_env.globals.update(_build_auth_url=_build_auth_url)  # Used in template
 
-def interactWithOffice(tokens):
-    print("thing")
+#def interactWithOffice(tokens):
+    #print("thing")
 
 if __name__ == "__main__":
     #interaction = Process(target=interactWithOffice, args=)
