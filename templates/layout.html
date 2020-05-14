@@ -18,9 +18,21 @@
           <span class="navbar-toggler-icon"></span>
         </button>
         <div class="collapse navbar-collapse" id="navbarCollapse">
+          <ul class="navbar-nav mr-auto">
+            {% if user %}
+            <li class="nav-item" data-turbolinks="false">
+              <a href="/calendar" class="nav-link">Calendar</a>
+            </li>
+            {% endif %}
+          </ul>
+          
           <ul class="navbar-nav justify-content-end">
               <li class="nav-item">
-                <a href="{{auth_url}}" class="dropdown-item">Sign In</a>
+                {% if user %}
+                <a href="/logout" class="nav-link">Sign Out</a>
+                {% else %}
+                <a href="{{auth_url}}" class="nav-link">Sign In</a>
+                {% endif %}
               </li>
           </ul>
         </div>
@@ -28,9 +40,13 @@
     </nav>
     <main role="main" class="container">
       <div class="jumbotron">
-        <h1>Python Graph Tutorial</h1>
-        <p class="lead">Connecting Edsby with Office 365, one step at a time</p>
-        <a href="{{auth_url}}" class="btn btn-primary btn-large">Click here to sign in</a>
+        {% if errors %}
+        <div class="alert alert-danger" role="alert">
+            <p class="mb-3">{{ errors.get("error") }}</p>
+            <p> {{errors.get("error_description")}}</p>
+        </div>
+      {% endif %}
+      {% block content %}{% endblock %}
       </div>
     </main>
 
@@ -45,3 +61,4 @@
       crossorigin="anonymous"></script>
   </body>
 </html>
+<!-- </LayoutSnippet> -->
