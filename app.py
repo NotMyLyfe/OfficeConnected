@@ -11,7 +11,8 @@ app = Flask(__name__)
 app.config.from_object(app_config)
 Session(app)
 
-testing = False
+testing = False # Set to True if running a local Flask server, if deploying to Azure, set to False
+# LEAVING THIS FALSE IN AZURE OR TRUE IN LOCAL FLASK RESULTS IN AN ERROR, OAUTH REQUIRES HTTPS, EXCEPT LOCALLY (Learnt that the hard way bashing my head against the keyboard for 3 hours)
 
 if testing:
     protocolScheme = 'http'
@@ -22,26 +23,19 @@ else:
 @app.route("/")
 def index():
     if not session.get("user"):
-        return redirect(url_for("login"))
+        session["state"] = str(uuid.uuid4())
+        auth_url = _build_auth_url(scopes=app_config.SCOPE, state=session["state"])
+        return render_template('home.html', auth_url=auth_url)
     return render_template('home.html', user=session["user"])
-
-@app.route("/login")
-def login():
-    if session.get("user"):
-        return redirect(url_for("index"))
-    session["state"] = str(uuid.uuid4())
-    # Technically we could use empty list [] as scopes to do just sign in,
-    # here we choose to also collect end user consent upfront
-    auth_url = _build_auth_url(scopes=app_config.SCOPE, state=session["state"])
-
-    return render_template("login.html", auth_url=auth_url)
 
 @app.route(app_config.REDIRECT_PATH)  # Its absolute URL must match your app's redirect_uri set in AAD
 def authorized():
     if request.args.get('state') != session.get("state"):
         return redirect(url_for("index"))  # No-OP. Goes back to Index page
     if "error" in request.args:  # Authentication/Authorization failure
-        return render_template("auth_error.html", result=request.args)
+        session["state"] = str(uuid.uuid4())
+        auth_url = _build_auth_url(scopes=app_config.SCOPE, state=session["state"])
+        return render_template("home.html", errors=request.args, auth_url=auth_url)
     if request.args.get('code'):
         cache = _load_cache()
         result = _build_msal_app(cache=cache).acquire_token_by_authorization_code(
@@ -49,7 +43,9 @@ def authorized():
             scopes=app_config.SCOPE,  # Misspelled scope would cause an HTTP 400 error here
             redirect_uri=url_for("authorized", _external=True, _scheme=protocolScheme))
         if "error" in result:
-            return render_template("auth_error.html", result=result)
+            session["state"] = str(uuid.uuid4())
+            auth_url = _build_auth_url(scopes=app_config.SCOPE, state=session["state"])
+            return render_template("home.html", errors=result, auth_url=auth_url)
         session["user"] = result.get("id_token_claims")
         _save_cache(cache)
     return redirect(url_for("index"))
