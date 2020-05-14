@@ -4,7 +4,8 @@ from flask import Flask, render_template, session, request, redirect, url_for
 from flask_session import Session
 import msal
 import app_config
-
+import pyodbc
+from sql import *
 
 app = Flask(__name__)
 app.config.from_object(app_config)
@@ -22,15 +23,18 @@ else:
 def index():
     if not session.get("user"):
         return redirect(url_for("login"))
-    return render_template('index.html', user=session["user"], version=msal.__version__)
+    return render_template('home.html', user=session["user"])
 
 @app.route("/login")
 def login():
+    if session.get("user"):
+        return redirect(url_for("index"))
     session["state"] = str(uuid.uuid4())
     # Technically we could use empty list [] as scopes to do just sign in,
     # here we choose to also collect end user consent upfront
     auth_url = _build_auth_url(scopes=app_config.SCOPE, state=session["state"])
-    return render_template("login.html", auth_url=auth_url, version=msal.__version__)
+
+    return render_template("login.html", auth_url=auth_url)
 
 @app.route(app_config.REDIRECT_PATH)  # Its absolute URL must match your app's redirect_uri set in AAD
 def authorized():
@@ -63,9 +67,13 @@ def graphcall():
     if not token:
         return redirect(url_for("login"))
     graph_data = requests.get(  # Use token to call downstream service
-        app_config.ENDPOINT,
+        app_config.ENDPOINT + '/me/joinedTeams',
         headers={'Authorization': 'Bearer ' + token['access_token']},
         ).json()
+    
+    for i in graph_data['value']:
+        print(i['id'])
+
     return render_template('display.html', result=graph_data)
 
 

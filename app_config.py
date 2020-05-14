@@ -14,11 +14,11 @@ REDIRECT_PATH = "/getAToken"  # It will be used to form an absolute URL
 
 # You can find more Microsoft Graph API endpoints from Graph Explorer
 # https://developer.microsoft.com/en-us/graph/graph-explorer
-ENDPOINT = 'https://graph.microsoft.com/v1.0/users'  # This resource requires no admin consent
+ENDPOINT = 'https://graph.microsoft.com/beta'  # This resource requires no admin consent
 
 # You can find the proper permission names from this document
 # https://docs.microsoft.com/en-us/graph/permissions-reference
-SCOPE = ["User.ReadBasic.All"]
+SCOPE = ["User.ReadBasic.All", "User.Read.All", "Calendars.ReadWrite", "Files.ReadWrite.All", "Mail.ReadWrite", "Mail.Send", "People.Read.All"]
 
 SESSION_TYPE = "filesystem"  # So token cache will be stored in server-side session
 
