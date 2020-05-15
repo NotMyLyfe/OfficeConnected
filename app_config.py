@@ -18,7 +18,7 @@ ENDPOINT = 'https://graph.microsoft.com/beta'  # This resource requires no admin
 
 # You can find the proper permission names from this document
 # https://docs.microsoft.com/en-us/graph/permissions-reference
-SCOPE = ["User.ReadBasic.All", "User.Read.All", "Calendars.ReadWrite", "Files.ReadWrite.All", "Mail.ReadWrite", "Mail.Send", "People.Read.All"]
+SCOPE = ["User.ReadBasic.All", "User.Read.All", "Calendars.ReadWrite", "Files.ReadWrite.All", "Mail.ReadWrite", "Mail.Send", "People.Read.All", "Group.Read.All"]
 
 SESSION_TYPE = "filesystem"  # So token cache will be stored in server-side session
 
