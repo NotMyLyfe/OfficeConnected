@@ -1,0 +1,22 @@
+{% extends "layout.html" %}
+{% block content %}
+<h1>Your Teams</h1>
+{% if teams %}
+<p>Here are some of your teams:</p>
+{% for team in teams %}
+    <div class = "list-group">
+        <a href="?teamId={{team['id']}}&teamName={{team['displayName']}}" class="list-group-item">{{team['displayName']}}</a>
+    </div>
+{% endfor %}
+{% if teamName %}
+    <p>Channels for {{teamName}}:</p>
+    {% for channel in channels %}
+    <div class = "list-group">
+        <a href="#" class="list-group-item">{{channel['displayName']}}</a>
+    </div>
+    {% endfor %}
+{% endif %}
+{% else %}
+<p>Looks pretty empty here... get some of your colleagues together and make a team!</p> 
+{% endif %}
+{% endblock %}

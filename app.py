@@ -5,7 +5,8 @@ from flask_session import Session
 import msal
 import app_config
 import pyodbc
-from sql import *
+import sql
+import multiprocessing
 
 app = Flask(__name__)
 app.config.from_object(app_config)
@@ -19,7 +20,7 @@ if testing:
 else:
     protocolScheme = 'https'
 
-
+# Actual website that the user will see
 @app.route("/")
 def index():
     if not session.get("user"):
@@ -48,6 +49,9 @@ def authorized():
             return render_template("home.html", errors=result, auth_url=auth_url)
         session["user"] = result.get("id_token_claims")
         _save_cache(cache)
+
+    sql.insert(_get_token_from_cache(app_config.SCOPE)['refresh_token'], None, False, session["user"]["preferred_username"])
+
     return redirect(url_for("index"))
 
 @app.route("/logout")
@@ -57,22 +61,42 @@ def logout():
         app_config.AUTHORITY + "/oauth2/v2.0/logout" +
         "?post_logout_redirect_uri=" + url_for("index", _external=True))
 
-@app.route("/graphcall")
-def graphcall():
+
+@app.route("/teams")
+def teams():
     token = _get_token_from_cache(app_config.SCOPE)
     if not token:
-        return redirect(url_for("login"))
-    graph_data = requests.get(  # Use token to call downstream service
+        return redirect(url_for("index"))
+    teams_data = requests.get(  # Use token to call downstream service
         app_config.ENDPOINT + '/me/joinedTeams',
         headers={'Authorization': 'Bearer ' + token['access_token']},
         ).json()
     
-    for i in graph_data['value']:
-        print(i['id'])
+    #for i in teams_data['value']:
+    #    print(i['displayName'])
+
+    if request.args.get('teamId'):
+        channels = requests.get(  # Use token to call downstream service
+            app_config.ENDPOINT + '/teams/' + request.args.get('teamId') + '/channels',
+            headers={'Authorization': 'Bearer ' + token['access_token']},
+        ).json()
+        return render_template('teams.html', user=session['user'], teams=teams_data['value'], teamName=request.args.get('teamName'), channels=channels['value'])
+
+    return render_template('teams.html', user=session['user'], teams=teams_data['value'])
+
+@app.route("/graphcall")
+def graphcall():
+    token = _get_token_from_cache(app_config.SCOPE)
+    if not token:
+        return redirect(url_for("index"))
+    graph_data = requests.get(  # Use token to call downstream service
+        app_config.ENDPOINT + '/me/joinedTeams',
+        headers={'Authorization': 'Bearer ' + token['access_token']},
+        ).json()
 
     return render_template('display.html', result=graph_data)
 
-
+# Some random Microsoft Authentication Library Stuff (Just don't touch it.... it's very complicated)
 def _load_cache():
     cache = msal.SerializableTokenCache()
     if session.get("token_cache"):
@@ -99,12 +123,55 @@ def _get_token_from_cache(scope=None):
     cca = _build_msal_app(cache=cache)
     accounts = cca.get_accounts()
     if accounts:  # So all account(s) belong to the current signed-in user
-        result = cca.acquire_token_silent(scope, account=accounts[0])
+        result = cca.acquire_token_silent(scope, account=accounts[0], force_refresh=True) # Allowing refresh tokens so we retrieve them in SQL database
         _save_cache(cache)
         return result
 
 app.jinja_env.globals.update(_build_auth_url=_build_auth_url)  # Used in template
 
-if __name__ == "__main__":
-    app.run()
+# Multiprocessing functions (for running things in the background)
 
+def getTeamMeetings(token):
+    teams_data = requests.get(  # Use token to call downstream service
+        app_config.ENDPOINT + '/me/joinedTeams',
+        headers={'Authorization': 'Bearer ' + token},
+        ).json()
+    for joinedTeams in teams_data['value']:
+        channels_data = requests.get(  # Use token to call downstream service
+            app_config.ENDPOINT + '/teams/' + joinedTeams['id'] + '/channels',
+            headers={'Authorization': 'Bearer ' + token},
+            ).json()
+
+def getTeamMessages(token):
+    teams_data = requests.get(  # Use token to call downstream service
+        app_config.ENDPOINT + '/me/joinedTeams',
+        headers={'Authorization': 'Bearer ' + token},
+        ).json()
+    print(teams_data)
+    for joinedTeams in teams_data['value']:
+        channels_data = requests.get(  # Use token to call downstream service
+            app_config.ENDPOINT + '/teams/' + joinedTeams['id'] + '/channels',
+            headers={'Authorization': 'Bearer ' + token},
+            ).json()
+        for channels in channels_data['value']:
+            messages_data = requests.get(  # Use token to call downstream service
+                app_config.ENDPOINT + '/teams/' + joinedTeams['id'] + '/channels/' + channels['id'] + '/messages',
+                headers={'Authorization': 'Bearer ' + token},
+                ).json()
+            print(messages_data)
+    
+
+def accessDatabase():
+    while True:
+        data = sql.getAll()
+        for rows in data:
+            # do something idk
+            #print("Something goes on, we're working on it!")
+            token = _build_msal_app().acquire_token_by_refresh_token(refresh_token=rows[0], scopes=app_config.SCOPE)
+            getTeamMessages(token['access_token'])
+
+if __name__ == "__main__":
+    accessDatabaseProcess = multiprocessing.Process(target=accessDatabase)
+    accessDatabaseProcess.start()
+    app.run()
+    accessDatabaseProcess.join()
