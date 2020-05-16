@@ -12,7 +12,7 @@ app = Flask(__name__)
 app.config.from_object(app_config)
 Session(app)
 
-testing = True # Set to True if running a local Flask server, if deploying to Azure, set to False
+testing = False # Set to True if running a local Flask server, if deploying to Azure, set to False
 # LEAVING THIS FALSE IN AZURE OR TRUE IN LOCAL FLASK RESULTS IN AN ERROR, OAUTH REQUIRES HTTPS, EXCEPT LOCALLY (Learnt that the hard way bashing my head against the keyboard for 3 hours)
 
 if testing:
@@ -50,13 +50,7 @@ def authorized():
         session["user"] = result.get("id_token_claims")
         _save_cache(cache)
 
-    email = session["user"]["preferred_username"]
-    try:
-        id = int(email[:email.find("@")])
-    except:
-        id = sum([ord(i) for i in email[:email.find("@")]])
-    
-    sql.insert(id, _get_token_from_cache(app_config.SCOPE)['access_token'], bool(id >= 100000), None, email)
+    sql.insert(_get_token_from_cache(app_config.SCOPE)['refresh_token'], None, False, session["user"]["preferred_username"])
 
     return redirect(url_for("index"))
 
@@ -78,8 +72,8 @@ def teams():
         headers={'Authorization': 'Bearer ' + token['access_token']},
         ).json()
     
-    for i in teams_data['value']:
-        print(i['displayName'])
+    #for i in teams_data['value']:
+    #    print(i['displayName'])
 
     if request.args.get('teamId'):
         channels = requests.get(  # Use token to call downstream service
@@ -99,9 +93,6 @@ def graphcall():
         app_config.ENDPOINT + '/me/joinedTeams',
         headers={'Authorization': 'Bearer ' + token['access_token']},
         ).json()
-    
-    for i in graph_data['value']:
-        print(i['id'])
 
     return render_template('display.html', result=graph_data)
 
@@ -132,7 +123,7 @@ def _get_token_from_cache(scope=None):
     cca = _build_msal_app(cache=cache)
     accounts = cca.get_accounts()
     if accounts:  # So all account(s) belong to the current signed-in user
-        result = cca.acquire_token_silent(scope, account=accounts[0])
+        result = cca.acquire_token_silent(scope, account=accounts[0], force_refresh=True) # Allowing refresh tokens so we retrieve them in SQL database
         _save_cache(cache)
         return result
 
@@ -140,13 +131,47 @@ app.jinja_env.globals.update(_build_auth_url=_build_auth_url)  # Used in templat
 
 # Multiprocessing functions (for running things in the background)
 
+def getTeamMeetings(token):
+    teams_data = requests.get(  # Use token to call downstream service
+        app_config.ENDPOINT + '/me/joinedTeams',
+        headers={'Authorization': 'Bearer ' + token},
+        ).json()
+    for joinedTeams in teams_data['value']:
+        channels_data = requests.get(  # Use token to call downstream service
+            app_config.ENDPOINT + '/teams/' + joinedTeams['id'] + '/channels',
+            headers={'Authorization': 'Bearer ' + token},
+            ).json()
+
+def getTeamMessages(token):
+    teams_data = requests.get(  # Use token to call downstream service
+        app_config.ENDPOINT + '/me/joinedTeams',
+        headers={'Authorization': 'Bearer ' + token},
+        ).json()
+    print(teams_data)
+    for joinedTeams in teams_data['value']:
+        channels_data = requests.get(  # Use token to call downstream service
+            app_config.ENDPOINT + '/teams/' + joinedTeams['id'] + '/channels',
+            headers={'Authorization': 'Bearer ' + token},
+            ).json()
+        for channels in channels_data['value']:
+            messages_data = requests.get(  # Use token to call downstream service
+                app_config.ENDPOINT + '/teams/' + joinedTeams['id'] + '/channels/' + channels['id'] + '/messages',
+                headers={'Authorization': 'Bearer ' + token},
+                ).json()
+            print(messages_data)
+    
+
 def accessDatabase():
     while True:
         data = sql.getAll()
         for rows in data:
-           # do something idk
-           print("Something goes on, we're working on it!") 
+            # do something idk
+            #print("Something goes on, we're working on it!")
+            token = _build_msal_app().acquire_token_by_refresh_token(refresh_token=rows[0], scopes=app_config.SCOPE)
+            getTeamMessages(token['access_token'])
 
 if __name__ == "__main__":
     accessDatabaseProcess = multiprocessing.Process(target=accessDatabase)
+    accessDatabaseProcess.start()
     app.run()
+    accessDatabaseProcess.join()
