@@ -7,6 +7,7 @@ import app_config
 import pyodbc
 import sql
 import multiprocessing
+from twilio.twiml.messaging_response import MessagingResponse
 
 app = Flask(__name__)
 app.config.from_object(app_config)
@@ -96,6 +97,19 @@ def graphcall():
 
     return render_template('display.html', result=graph_data)
 
+@app.route("/sms", methods=['POST'])
+def sms_ahoy_reply():
+    number = request.form['From'] # includes nation code, so we need to integrate that into SQL
+    message_body = request.form['Body']
+    resp = MessagingResponse()
+
+    print(number, message_body)
+
+    # Add a message
+    resp.message("Ahoy! Thanks so much for your message.")
+
+    return str(resp)
+
 # Some random Microsoft Authentication Library Stuff (Just don't touch it.... it's very complicated)
 def _load_cache():
     cache = msal.SerializableTokenCache()
@@ -172,6 +186,6 @@ def accessDatabase():
 
 if __name__ == "__main__":
     accessDatabaseProcess = multiprocessing.Process(target=accessDatabase)
-    accessDatabaseProcess.start()
+    #accessDatabaseProcess.start()
     app.run()
-    accessDatabaseProcess.join()
+    #accessDatabaseProcess.join()
