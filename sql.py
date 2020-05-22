@@ -25,12 +25,16 @@ update = {
 
 delete_query = '''DELETE FROM userData WHERE Email LIKE ?;'''
 
+def updateVal(Email, column, value):
+    cursor.execute(update[column], (value, Email))
+    cursor.commit()
 
 def insert(Token, PhoneNumber, GetSMSTeamNotifications, Email):
     cursor.execute(readSpecific_query, (Email))
     if not cursor.fetchone():
         cursor.execute(insert_query, (Token, PhoneNumber, GetSMSTeamNotifications, Email))
         cursor.commit()
+    else: updateVal(Email, 'Token', Token)
 
 def updateAll(Token, PhoneNumber, GetSMSTeamNotifications, Email):
     cursor.execute(readSpecific_query, (Email))
@@ -42,10 +46,6 @@ def fetch(Email):
 
 def getAll():
     return cursor.execute(read_query)
-
-def updateVal(Email, column, value):
-    cursor.execute(update[column], (value, Email))
-    cursor.commit()
 
 def delete(Email):
     cursor.execute(delete_query, Email)
