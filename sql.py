@@ -1,26 +1,26 @@
 import pyodbc
 import os
 
-password = os.getenv('SQL_PASSWORD')
-cnxn = pyodbc.connect(
+cursor = pyodbc.connect(
     'DRIVER={ODBC Driver 17 for SQL Server};'
     'SERVER=officeconnected.database.windows.net;'
     'PORT=1433;'
     'DATABASE=OfficeConnected;'
     'UID=OfficeConnected;'
-    'PWD='+password
-)
+    'PWD='+os.getenv('SQL_PASSWORD')
+).cursor()
 
-cursor = cnxn.cursor()
-
-insert_query = '''INSERT INTO userData (Token, PhoneNumber, GetSMSTeamNotifications, Email) VALUES (?, ?, ?, ?);'''
+insert_query = '''INSERT INTO userData (Token, PhoneNumber, GetSMSTeamNotifications, Email, EmailOverSMS, VerificationCode) VALUES (?, ?, ?, ?, ?, ?);'''
 read_query = '''SELECT * FROM userData;'''
 readSpecific_query = '''SELECT * FROM userData WHERE Email LIKE ?;'''
+readSpecific_queryPhone = '''SELECT * FROM userData WHERE PhoneNumber = ?;'''
 update = {
     'Token' : '''UPDATE userData SET Token = ? WHERE Email LIKE ?;''',
     'PhoneNumber' : '''UPDATE userData SET PhoneNumber = ? WHERE Email LIKE ?;''',
     'GetSMSTeamNotifications' : '''UPDATE userData SET GetSMSTeamNotifications = ? WHERE Email LIKE ?;''',
-    'all' : ''' UPDATE userData SET Token = ?, PhoneNumber = ?, GetSMSTeamNotifications = ? WHERE Email LIKE ?;'''
+    'EmailOverSMS' : '''UPDATE userData SET EmailOverSMS = ? WHERE Email LIKE ?;''',
+    'all' : ''' UPDATE userData SET Token = ?, PhoneNumber = ?, GetSMSTeamNotifications = ?, EmailOverSMS = ? WHERE Email LIKE ?;''',
+    'verificationCode' : '''UPDATE userData SET VerificationCode =? WHERE Email LIKE ?;'''
 }
 
 delete_query = '''DELETE FROM userData WHERE Email LIKE ?;'''
@@ -29,24 +29,30 @@ def updateVal(Email, column, value):
     cursor.execute(update[column], (value, Email))
     cursor.commit()
 
-def insert(Token, PhoneNumber, GetSMSTeamNotifications, Email):
-    cursor.execute(readSpecific_query, (Email))
-    if not cursor.fetchone():
-        cursor.execute(insert_query, (Token, PhoneNumber, GetSMSTeamNotifications, Email))
+def insert(Token, Email):
+    if not fetch(Email).fetchone():
+        cursor.execute(insert_query, (Token, None, False, Email, False, None))
         cursor.commit()
     else: updateVal(Email, 'Token', Token)
 
-def updateAll(Token, PhoneNumber, GetSMSTeamNotifications, Email):
-    cursor.execute(readSpecific_query, (Email))
-    if cursor.fetchone():
-        cursor.execute(update['all'], (Token, PhoneNumber, GetSMSTeamNotifications, Email))
+def updateAll(Token, PhoneNumber, GetSMSTeamNotifications, Email, EmailOverSMS):
+    if fetch(Email).fetchone():
+        cursor.execute(update['all'], (Token, PhoneNumber, GetSMSTeamNotifications, Email, EmailOverSMS))
+        return True
+    return False
 
 def fetch(Email):
     return cursor.execute(readSpecific_query, (Email))
+
+def fetchPhone(PhoneNumber):
+    return cursor.execute(readSpecific_queryPhone, (PhoneNumber))
 
 def getAll():
     return cursor.execute(read_query)
 
 def delete(Email):
-    cursor.execute(delete_query, Email)
-    cursor.commit()
+    if fetch(Email).fetchone():
+        cursor.execute(delete_query, Email)
+        cursor.commit()
+        return True
+    return False
