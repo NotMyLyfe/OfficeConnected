@@ -1,12 +1,9 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>OfficeConnected</title>
-
-    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css"
-      integrity="sha384-Vkoo8x4CGsO3+Hhxv8T/Q5PaXtkKtu6ug5TOeNV6gBiFeWPGFN9MuhOf23Q9Ifjh"
-      crossorigin="anonymous">
-    <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.13.0/css/all.css">
+    <title>OfficeConnected</title> <!--Name of site (seen on the tabs of browser-->
+    <!--Bootstrap style-->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css" integrity="sha384-9aIt2nRpC12Uk9gS9baDl411NQApFmC26EwAOH8WgZl5MYYxFfc+NcPb1dKGj7Sk" crossorigin="anonymous">
   </head>
 
   <body>
@@ -18,14 +15,6 @@
           <span class="navbar-toggler-icon"></span>
         </button>
         <div class="collapse navbar-collapse" id="navbarCollapse">
-          <ul class="navbar-nav mr-auto">
-            {% if user %}
-            <li class="nav-item" data-turbolinks="false">
-              <a href="/teams" class="nav-link">Teams</a>
-            </li>
-            {% endif %}
-          </ul>
-          
           <ul class="navbar-nav justify-content-end">
               <li class="nav-item">
                 {% if user %}
@@ -46,6 +35,11 @@
             <p> {{errors.get("error_description")}}</p>
         </div>
       {% endif %}
+      {% for alert in alerts %}
+      <div class="alert alert-primary" role="alert">
+        <p>{{alert}}</p>
+      </div>
+      {% endfor %}
       {% block content %}{% endblock %}
       </div>
     </main>
@@ -61,4 +55,3 @@
       crossorigin="anonymous"></script>
   </body>
 </html>
-<!-- </LayoutSnippet> -->
