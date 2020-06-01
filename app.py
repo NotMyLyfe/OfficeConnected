@@ -1,34 +1,93 @@
-import uuid
-import requests
+import uuid, requests, msal, app_config, pyodbc, sql, multiprocessing, os
 from flask import Flask, render_template, session, request, redirect, url_for
 from flask_session import Session
-import msal
-import app_config
-import pyodbc
-import sql
-import multiprocessing
 from twilio.twiml.messaging_response import MessagingResponse
+from twilio.rest import Client
 
+# Creates Flask app and session with config
 app = Flask(__name__)
 app.config.from_object(app_config)
 Session(app)
 
+# If encountering error AADSTS50011, make sure you input the correct value here
 testing = False # Set to True if running a local Flask server, if deploying to Azure, set to False
-# LEAVING THIS FALSE IN AZURE OR TRUE IN LOCAL FLASK RESULTS IN AN ERROR, OAUTH REQUIRES HTTPS, EXCEPT LOCALLY (Learnt that the hard way bashing my head against the keyboard for 3 hours)
+# INPUTTING THE WRONG VALUE WILL CAUSE OAUTH TO RUN INTO AN ERROR
 
+# Changes protocol scheme based on if running on localhost or not, since OAuth2 requires HTTPS, except when running it locally, as you can't create an HTTPS request to localhost
 if testing:
-    protocolScheme = 'http'
+    protocolScheme = 'http' 
 else:
     protocolScheme = 'https'
 
+# Messaging service for Twilio
+def send(text, to):
+    client = Client(os.getenv("TWILIOSID"), os.getenv("TWILIOAUTH")) # Creates Twilio client process with TWILIOSID and TWILIOAUTH environment variables
+    # Sends message with body text, from phone number registered under shared account
+    message = client.messages.create(
+            body = text,
+            from_='+18449612701',
+            to='+1'+str(to)
+        )
+
+@app.route("/sms", methods=['POST']) # Webhook request from Twilio to server (if a message via SMS is received from user)
+def sms_reply():
+    number = request.form['From'] # Gets phone number of user
+    resp = MessagingResponse() # creates MessageResponse object
+    if len(number) != 12 or number[0:2] != "+1": # Checks if phone number is from a North American number
+        resp.message("Sorry, the country where you're messaging from is currently unsupported")
+    else:
+        number = number[2:] # Removes international code
+        data = sql.fetchPhone(number).fetchone() # Finds data of user in the database
+
+        if not data: # if user doesn't exist or is not linked
+            resp.message("Your phone number is currently not saved on our database, please visit https://officeconnect.azurewebsites.net to connect your phone")
+        else: # if user does exist and is linked
+            token = _build_msal_app().acquire_token_by_refresh_token(refresh_token=data[0], scopes=app_config.SCOPE)
+            if "error" in token:
+                resp.message("Your login credentials have expired, please relogin to refresh credentials at https://officeconnected.azurewebsites.net")
+            else:
+                message_body = request.form['Body'] # Gets SMS message from user
+
+    return str(resp)
+
 # Actual website that the user will see
-@app.route("/")
+@app.route("/", methods=['POST', 'GET']) # Index page, that only accepts POST and GET requests
 def index():
-    if not session.get("user"):
-        session["state"] = str(uuid.uuid4())
-        auth_url = _build_auth_url(scopes=app_config.SCOPE, state=session["state"])
-        return render_template('home.html', auth_url=auth_url)
-    return render_template('home.html', user=session["user"])
+    alerts = [] # Any alerts that will show up using Bootstrap
+
+    if not session.get("user"): # Checks if login credentials of user are stored in current session
+        session["state"] = str(uuid.uuid4()) # Creates the state for OAuth
+        auth_url = _build_auth_url(scopes=app_config.SCOPE, state=session["state"]) # Creates the URL to be redirected to and to be authenticated
+        return render_template('home.html', auth_url=auth_url) # Displays 'home.html', using auth_url as an argument, so that users can easily be redirected
+    
+    errors = None
+
+    databaseInfo = sql.fetch(session["user"]["preferred_username"]).fetchone() # Gets the information regarding the user by searching for their email stored in SQL
+    if request.method == 'POST':
+        confirmDeleteAccount = 'deleteAccount' in request.form
+        print(request.form)
+        phoneNumber = request.form['phoneNumber']
+        if 'updateButton' in request.form:
+            if databaseInfo[1] != phoneNumber:
+                if sql.fetchPhone(phoneNumber).fetchone():
+                    errors = {
+                        "error" : "Phone number already exists",
+                        "error_description" : "An account with that phone number already exists in our database, please enter a valid phone number, or to unlink that number, text 'UNLINK' to +1 (844)-961-2701"
+                    }
+                else:
+                    sql.updateVal(session["user"]["preferred_username"], 'PhoneNumber', phoneNumber)
+                    send("OfficeConnected: Verify your phone by responding with the message 'LINK' to receive your verification code", phoneNumber)
+                    alerts.append("A message has been sent to your phone. Please verify your phone by responding with the message 'LINK' and entering your verification code")
+
+        elif 'deleteAccount' in request.form:
+            sql.delete(session["user"]["preferred_username"])
+            return redirect(url_for("logout"))
+
+    prefilledNumber = ""
+    if databaseInfo[1]:
+       prefilledNumber = databaseInfo[1] 
+
+    return render_template('home.html', user=session["user"], prefilledPhoneNumber=prefilledNumber, getTeamsNotificationsBool=databaseInfo[2], errors=errors, alerts=alerts)
 
 @app.route(app_config.REDIRECT_PATH)  # Its absolute URL must match your app's redirect_uri set in AAD
 def authorized():
@@ -51,7 +110,7 @@ def authorized():
         session["user"] = result.get("id_token_claims")
         _save_cache(cache)
 
-    sql.insert(_get_token_from_cache(app_config.SCOPE)['refresh_token'], None, False, session["user"]["preferred_username"])
+    sql.insert(_get_token_from_cache(app_config.SCOPE)['refresh_token'], session["user"]["preferred_username"])
 
     return redirect(url_for("index"))
 
@@ -61,54 +120,6 @@ def logout():
     return redirect(  # Also logout from your tenant's web session
         app_config.AUTHORITY + "/oauth2/v2.0/logout" +
         "?post_logout_redirect_uri=" + url_for("index", _external=True))
-
-
-@app.route("/teams")
-def teams():
-    token = _get_token_from_cache(app_config.SCOPE)
-    if not token:
-        return redirect(url_for("index"))
-    teams_data = requests.get(  # Use token to call downstream service
-        app_config.ENDPOINT + '/me/joinedTeams',
-        headers={'Authorization': 'Bearer ' + token['access_token']},
-        ).json()
-    
-    #for i in teams_data['value']:
-    #    print(i['displayName'])
-
-    if request.args.get('teamId'):
-        channels = requests.get(  # Use token to call downstream service
-            app_config.ENDPOINT + '/teams/' + request.args.get('teamId') + '/channels',
-            headers={'Authorization': 'Bearer ' + token['access_token']},
-        ).json()
-        return render_template('teams.html', user=session['user'], teams=teams_data['value'], teamName=request.args.get('teamName'), channels=channels['value'])
-
-    return render_template('teams.html', user=session['user'], teams=teams_data['value'])
-
-@app.route("/graphcall")
-def graphcall():
-    token = _get_token_from_cache(app_config.SCOPE)
-    if not token:
-        return redirect(url_for("index"))
-    graph_data = requests.get(  # Use token to call downstream service
-        app_config.ENDPOINT + '/me/joinedTeams',
-        headers={'Authorization': 'Bearer ' + token['access_token']},
-        ).json()
-
-    return render_template('display.html', result=graph_data)
-
-@app.route("/sms", methods=['POST'])
-def sms_ahoy_reply():
-    number = request.form['From'] # includes nation code, so we need to integrate that into SQL
-    message_body = request.form['Body']
-    resp = MessagingResponse()
-
-    print(number, message_body)
-
-    # Add a message
-    resp.message("Ahoy! Thanks so much for your message.")
-
-    return str(resp)
 
 # Some random Microsoft Authentication Library Stuff (Just don't touch it.... it's very complicated)
 def _load_cache():
@@ -144,7 +155,6 @@ def _get_token_from_cache(scope=None):
 app.jinja_env.globals.update(_build_auth_url=_build_auth_url)  # Used in template
 
 # Multiprocessing functions (for running things in the background)
-
 def getTeamMeetings(token):
     teams_data = requests.get(  # Use token to call downstream service
         app_config.ENDPOINT + '/me/joinedTeams',
@@ -161,7 +171,6 @@ def getTeamMessages(token):
         app_config.ENDPOINT + '/me/joinedTeams',
         headers={'Authorization': 'Bearer ' + token},
         ).json()
-    print(teams_data)
     for joinedTeams in teams_data['value']:
         channels_data = requests.get(  # Use token to call downstream service
             app_config.ENDPOINT + '/teams/' + joinedTeams['id'] + '/channels',
@@ -172,20 +181,23 @@ def getTeamMessages(token):
                 app_config.ENDPOINT + '/teams/' + joinedTeams['id'] + '/channels/' + channels['id'] + '/messages',
                 headers={'Authorization': 'Bearer ' + token},
                 ).json()
-            print(messages_data)
-    
 
 def accessDatabase():
     while True:
         data = sql.getAll()
         for rows in data:
-            # do something idk
-            #print("Something goes on, we're working on it!")
-            token = _build_msal_app().acquire_token_by_refresh_token(refresh_token=rows[0], scopes=app_config.SCOPE)
-            getTeamMessages(token['access_token'])
+            refreshToken = rows[0]
+            token = _build_msal_app().acquire_token_by_refresh_token(refresh_token=refreshToken, scopes=app_config.SCOPE)
+            if "error" not in token:
+                if rows[2]:
+                    getTeamMessages(token['access_token'])
+            else:
+                if rows[1]:
+                    send("Your login credentials have expired, please relogin to refresh credentials at https://officeconnected.azurewebsites.net", rows[1])
+                sql.delete(rows[3])
 
 if __name__ == "__main__":
     accessDatabaseProcess = multiprocessing.Process(target=accessDatabase)
-    #accessDatabaseProcess.start()
+    accessDatabaseProcess.start()
     app.run()
-    #accessDatabaseProcess.join()
+    accessDatabaseProcess.join()
