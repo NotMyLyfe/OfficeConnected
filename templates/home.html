@@ -11,6 +11,12 @@
         <label for="phoneNumber" style="padding-left: 20px;">Update your phone number (North America only):</label>
         <input for="tel" id="phoneNumber" name="phoneNumber" pattern="[0-9]{10}" value="{{prefilledPhoneNumber}}">
       </div>
+      {% if requireSMSVerification %}
+      <div class="form-group">
+        <label for="smsVerificationCode" style="padding-left: 20px;">Enter your SMS Verification Code:</label>
+        <input for="text" id="smsVerificationCode" name="smsVerificationCode" pattern="[A-Za-z0-9]{6}">
+      </div>
+      {% endif %}
       <div class="form-check form-group">
         <label for="getTeamsNotifications" id="getTeamsNotifications">Get Microsoft Team Notifications:</label>
         <input class="form-check-input" type="checkbox" value="{{getTeamsNotificationsBool}}" id="getTeamsNotifications" style="margin:10px;">

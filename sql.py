@@ -10,7 +10,7 @@ cursor = pyodbc.connect(
     'PWD='+os.getenv('SQL_PASSWORD')
 ).cursor()
 
-insert_query = '''INSERT INTO userData (Token, PhoneNumber, GetSMSTeamNotifications, Email, EmailOverSMS, VerificationCode) VALUES (?, ?, ?, ?, ?, ?);'''
+insert_query = '''INSERT INTO userData (Token, PhoneNumber, GetSMSTeamNotifications, Email, EmailOverSMS, VerifiedPhone, VerificationCode) VALUES (?, ?, ?, ?, ?, ?, ?);'''
 read_query = '''SELECT * FROM userData;'''
 readSpecific_query = '''SELECT * FROM userData WHERE Email LIKE ?;'''
 readSpecific_queryPhone = '''SELECT * FROM userData WHERE PhoneNumber = ?;'''
@@ -19,8 +19,8 @@ update = {
     'PhoneNumber' : '''UPDATE userData SET PhoneNumber = ? WHERE Email LIKE ?;''',
     'GetSMSTeamNotifications' : '''UPDATE userData SET GetSMSTeamNotifications = ? WHERE Email LIKE ?;''',
     'EmailOverSMS' : '''UPDATE userData SET EmailOverSMS = ? WHERE Email LIKE ?;''',
-    'all' : ''' UPDATE userData SET Token = ?, PhoneNumber = ?, GetSMSTeamNotifications = ?, EmailOverSMS = ? WHERE Email LIKE ?;''',
-    'verificationCode' : '''UPDATE userData SET VerificationCode =? WHERE Email LIKE ?;'''
+    'VerifiedPhone' : '''UPDATE userData SET VerifiedPhone = ? WHERE Email LIKE ?;''',
+    'VerificationCode' : '''UPDATE userData SET VerificationCode = ? WHERE Email LIKE ?;'''
 }
 
 delete_query = '''DELETE FROM userData WHERE Email LIKE ?;'''
@@ -31,15 +31,12 @@ def updateVal(Email, column, value):
 
 def insert(Token, Email):
     if not fetch(Email).fetchone():
-        cursor.execute(insert_query, (Token, None, False, Email, False, None))
+        cursor.execute(insert_query, (Token, None, False, Email, False, False, None))
         cursor.commit()
     else: updateVal(Email, 'Token', Token)
 
-def updateAll(Token, PhoneNumber, GetSMSTeamNotifications, Email, EmailOverSMS):
-    if fetch(Email).fetchone():
-        cursor.execute(update['all'], (Token, PhoneNumber, GetSMSTeamNotifications, Email, EmailOverSMS))
-        return True
-    return False
+# Not needed as of this moment, update and implement if needed
+# 'all' : ''' UPDATE userData SET Token = ?, PhoneNumber = ?, GetSMSTeamNotifications = ?, EmailOverSMS = ? WHERE Email LIKE ?;'''
 
 def fetch(Email):
     return cursor.execute(readSpecific_query, (Email))

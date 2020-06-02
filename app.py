@@ -1,4 +1,8 @@
-import uuid, requests, msal, app_config, pyodbc, sql, multiprocessing, os
+# app.py
+# Gordon Lin and Evan Lu
+# 
+
+import uuid, requests, msal, app_config, pyodbc, sql, multiprocessing, os, random, string
 from flask import Flask, render_template, session, request, redirect, url_for
 from flask_session import Session
 from twilio.twiml.messaging_response import MessagingResponse
@@ -9,9 +13,9 @@ app = Flask(__name__)
 app.config.from_object(app_config)
 Session(app)
 
-# If encountering error AADSTS50011, make sure you input the correct value here
-testing = False # Set to True if running a local Flask server, if deploying to Azure, set to False
-# INPUTTING THE WRONG VALUE WILL CAUSE OAUTH TO RUN INTO AN ERROR
+testing = False     # Set to True if running a local Flask server, if deploying to Azure, set to False
+# INPUTTING THE WRONG VALUE WILL CAUSE OAUTH2 TO RUN INTO AN ERROR
+# If encountering error AADSTS50011, change the value to opposite value
 
 # Changes protocol scheme based on if running on localhost or not, since OAuth2 requires HTTPS, except when running it locally, as you can't create an HTTPS request to localhost
 if testing:
@@ -29,74 +33,128 @@ def send(text, to):
             to='+1'+str(to)
         )
 
-@app.route("/sms", methods=['POST']) # Webhook request from Twilio to server (if a message via SMS is received from user)
+@app.route("/sms", methods=['POST'])     # Webhook request from Twilio to server (if a message via SMS is received from user)
 def sms_reply():
-    number = request.form['From'] # Gets phone number of user
-    resp = MessagingResponse() # creates MessageResponse object
+    number = request.form['From']     # Gets phone number of user
+    resp = MessagingResponse()     # creates MessageResponse object
+    
     if len(number) != 12 or number[0:2] != "+1": # Checks if phone number is from a North American number
-        resp.message("Sorry, the country where you're messaging from is currently unsupported")
+        resp.message("OfficeConnected: Sorry, the country where you're messaging from is currently unsupported")
     else:
-        number = number[2:] # Removes international code
-        data = sql.fetchPhone(number).fetchone() # Finds data of user in the database
+        number = number[2:]     # Removes international code
+        data = sql.fetchPhone(number).fetchone()     # Finds data of user in the database
 
-        if not data: # if user doesn't exist or is not linked
-            resp.message("Your phone number is currently not saved on our database, please visit https://officeconnect.azurewebsites.net to connect your phone")
-        else: # if user does exist and is linked
+        if not data:     # if user doesn't exist or is not linked
+            resp.message("OfficeConnected: Your phone number is currently not saved on our database, please visit https://officeconnect.azurewebsites.net to connect your phone")
+        else:     # if user does exist and is linked
             token = _build_msal_app().acquire_token_by_refresh_token(refresh_token=data[0], scopes=app_config.SCOPE)
+            email = data[3]
             if "error" in token:
-                resp.message("Your login credentials have expired, please relogin to refresh credentials at https://officeconnected.azurewebsites.net")
+                resp.message("OfficeConnected: Your login credentials have expired, please relogin to refresh credentials at https://officeconnected.azurewebsites.net")
             else:
-                message_body = request.form['Body'] # Gets SMS message from user
+                message_body = request.form['Body']     # Gets SMS message from user
+                if not data[5]:
+                    if message_body.upper() == 'LINK':
+                        verificationCode = str("".join(random.choice(string.ascii_letters + string.digits) for i in range(6)))
+                        resp.message("OfficeConnected: Your verification code is %s" % verificationCode)
+                        sql.updateVal(email, 'VerificationCode', verificationCode)
+                    else:
+                        resp.message("OfficeConnected: You're phone number is currently unverified on our system. Please verify your phone number by responding with 'LINK' and entering your code at our website https://officeconnected.azurewebsites.net")
+                else:
+                    if message_body.upper() == 'LINK':
+                        resp.message("OfficeConnected: You already have your phone number linked, no need to link it again. If you wish to unlink your phone, reply with 'UNLINK'.")
+                        
 
     return str(resp)
 
 # Actual website that the user will see
-@app.route("/", methods=['POST', 'GET']) # Index page, that only accepts POST and GET requests
+@app.route("/", methods=['POST', 'GET'])     # Index page, that only accepts POST and GET requests
 def index():
-    alerts = [] # Any alerts that will show up using Bootstrap
+    alerts = []     # Any alerts that will show up using Bootstrap
+    errors = []
+
+    htmlArguments = {}
+
+    if 'error' in request.args:
+        errors.append({
+            'error' : request.args['error'],
+            'error_description' : request.args['error_description']
+        })
 
     if not session.get("user"): # Checks if login credentials of user are stored in current session
         session["state"] = str(uuid.uuid4()) # Creates the state for OAuth
         auth_url = _build_auth_url(scopes=app_config.SCOPE, state=session["state"]) # Creates the URL to be redirected to and to be authenticated
-        return render_template('home.html', auth_url=auth_url) # Displays 'home.html', using auth_url as an argument, so that users can easily be redirected
-    
-    errors = None
+        htmlArguments['auth_url'] = auth_url
+    else:
+        emailOfUser = session["user"]["preferred_username"]
+        databaseInfo = sql.fetch(emailOfUser).fetchone() # Gets the information regarding the user by searching for their email stored in SQL
 
-    databaseInfo = sql.fetch(session["user"]["preferred_username"]).fetchone() # Gets the information regarding the user by searching for their email stored in SQL
-    if request.method == 'POST':
-        confirmDeleteAccount = 'deleteAccount' in request.form
-        print(request.form)
-        phoneNumber = request.form['phoneNumber']
-        if 'updateButton' in request.form:
-            if databaseInfo[1] != phoneNumber:
-                if sql.fetchPhone(phoneNumber).fetchone():
-                    errors = {
-                        "error" : "Phone number already exists",
-                        "error_description" : "An account with that phone number already exists in our database, please enter a valid phone number, or to unlink that number, text 'UNLINK' to +1 (844)-961-2701"
-                    }
-                else:
-                    sql.updateVal(session["user"]["preferred_username"], 'PhoneNumber', phoneNumber)
-                    send("OfficeConnected: Verify your phone by responding with the message 'LINK' to receive your verification code", phoneNumber)
-                    alerts.append("A message has been sent to your phone. Please verify your phone by responding with the message 'LINK' and entering your verification code")
+        if not databaseInfo:
+            session.clear()
+            return redirect(url_for("index"))
 
-        elif 'deleteAccount' in request.form:
-            sql.delete(session["user"]["preferred_username"])
-            return redirect(url_for("logout"))
+        requireSMSVerification = databaseInfo[1] and not databaseInfo[5]
 
-    prefilledNumber = ""
-    if databaseInfo[1]:
-       prefilledNumber = databaseInfo[1] 
+        if request.method == 'POST':
+            confirmDeleteAccount = 'deleteAccount' in request.form
+            phoneNumber = request.form['phoneNumber']
+            if requireSMSVerification:
+                verificationCodeFromUser = request.form['smsVerificationCode']
 
-    return render_template('home.html', user=session["user"], prefilledPhoneNumber=prefilledNumber, getTeamsNotificationsBool=databaseInfo[2], errors=errors, alerts=alerts)
+            if 'updateButton' in request.form:
+                if databaseInfo[1] != phoneNumber and phoneNumber:
+                    if sql.fetchPhone(phoneNumber).fetchone():
+                        errors.append({
+                            "error" : "Phone number already exists",
+                            "error_description" : "An account with that phone number already exists in our database, please enter a valid phone number, or to unlink that number, text 'UNLINK' to +1 (844)-961-2701"
+                        })
+                    else:
+                        sql.updateVal(emailOfUser, 'PhoneNumber', phoneNumber)
+                        sql.updateVal(emailOfUser, 'VerifiedPhone', False)
+                        sql.updateVal(emailOfUser, 'VerificationCode', None)
+
+                        requireSMSVerification = True
+
+                        send("OfficeConnected: Verify your phone by responding with the message 'LINK' to receive your verification code", phoneNumber)
+
+                        alerts.append("A message has been sent to your phone. Please verify your phone by responding with the message 'LINK' and entering your verification code")
+                if requireSMSVerification and verificationCodeFromUser:
+                    if verificationCodeFromUser == databaseInfo[6]:
+                        sql.updateVal(emailOfUser, 'VerifiedPhone', True)
+                        sql.updateVal(emailOfUser, 'VerificationCode', None)
+
+                        requireSMSVerification = False
+
+                        send("OfficeConnected: You have successfully connected your phone! Reply with 'HELP' to get a full list of items you can do with OfficeConnected", databaseInfo[1])
+                    else:
+                        errors.append({
+                            "error" : "Invalid SMS verification code",
+                            "error_description" : "You have entered an invalid verification code, make sure you've typed the right characters. If you would like a new verification code, you can reply 'LINK' to the SMS message"
+                        })
+            elif 'deleteAccount' in request.form:
+                sql.delete(emailOfUser)
+                return redirect(url_for("logout"))
+
+        if databaseInfo[1]:
+            htmlArguments['prefilledPhoneNumber'] = databaseInfo[1]
+        else:
+            htmlArguments['prefilledPhoneNumber'] = ""
+
+        htmlArguments['getTeamsNotificationsBool'] = databaseInfo[2]
+        htmlArguments['requireSMSVerification'] = requireSMSVerification
+        htmlArguments['user'] = session['user']
+
+    htmlArguments['errors'] = errors
+    htmlArguments['alerts'] = alerts
+
+    return render_template('home.html', **htmlArguments)
 
 @app.route(app_config.REDIRECT_PATH)  # Its absolute URL must match your app's redirect_uri set in AAD
 def authorized():
     if request.args.get('state') != session.get("state"):
         return redirect(url_for("index"))  # No-OP. Goes back to Index page
     if "error" in request.args:  # Authentication/Authorization failure
-        session["state"] = str(uuid.uuid4())
-        auth_url = _build_auth_url(scopes=app_config.SCOPE, state=session["state"])
-        return render_template("home.html", errors=request.args, auth_url=auth_url)
+        return redirect(url_for("index", **request.args))
     if request.args.get('code'):
         cache = _load_cache()
         result = _build_msal_app(cache=cache).acquire_token_by_authorization_code(
@@ -104,9 +162,7 @@ def authorized():
             scopes=app_config.SCOPE,  # Misspelled scope would cause an HTTP 400 error here
             redirect_uri=url_for("authorized", _external=True, _scheme=protocolScheme))
         if "error" in result:
-            session["state"] = str(uuid.uuid4())
-            auth_url = _build_auth_url(scopes=app_config.SCOPE, state=session["state"])
-            return render_template("home.html", errors=result, auth_url=auth_url)
+            return redirect(url_for("index", **request.args))
         session["user"] = result.get("id_token_claims")
         _save_cache(cache)
 

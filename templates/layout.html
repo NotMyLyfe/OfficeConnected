@@ -29,18 +29,18 @@
     </nav>
     <main role="main" class="container">
       <div class="jumbotron">
-        {% if errors %}
+        {% for error in errors %}
         <div class="alert alert-danger" role="alert">
-            <p class="mb-3">{{ errors.get("error") }}</p>
-            <p> {{errors.get("error_description")}}</p>
+          <p class="mb-3">{{error.get("error")}}</p>
+          <p>{{error.get("error_description")}}</p>
         </div>
-      {% endif %}
-      {% for alert in alerts %}
-      <div class="alert alert-primary" role="alert">
-        <p>{{alert}}</p>
-      </div>
-      {% endfor %}
-      {% block content %}{% endblock %}
+        {% endfor %}
+        {% for alert in alerts %}
+        <div class="alert alert-primary" role="alert">
+          <p>{{alert}}</p>
+        </div>
+        {% endfor %}
+        {% block content %}{% endblock %}
       </div>
     </main>
 
