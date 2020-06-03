@@ -214,7 +214,6 @@ def getTeamMessages(token):
                 ).json()
 
 def accessDatabase():
-    send("Working", os.getenv('testPhoneNumber'))
     while True:
         data = sql.getAll()
         for rows in data:
@@ -292,7 +291,12 @@ def _get_token_from_cache(scope=None):
 app.jinja_env.globals.update(_build_auth_url=_build_auth_url)  # Used in template
 
 if __name__ == "__main__":
+    send("Main", os.getenv('testPhoneNumber'))
     accessDatabaseProcess = multiprocessing.Process(target=accessDatabase)
     accessDatabaseProcess.start()
     app.run()
     accessDatabaseProcess.join()
+elif __name__ == "app":
+    send("App", os.getenv('testPhoneNumber'))
+else:
+    send(str(__name__), os.getenv('testPhoneNumber'))
