@@ -13,7 +13,7 @@ app = Flask(__name__)
 app.config.from_object(app_config)
 Session(app)
 
-testing = True     # Set to True if running a local Flask server, if deploying to Azure, set to False
+testing = False     # Set to True if running a local Flask server, if deploying to Azure, set to False
 # INPUTTING THE WRONG VALUE WILL CAUSE OAUTH2 TO RUN INTO AN ERROR
 # If encountering error AADSTS50011, change the value to opposite value
 
@@ -195,6 +195,7 @@ def getTeamMeetings(token):
             app_config.ENDPOINT + '/teams/' + joinedTeams['id'] + '/channels',
             headers={'Authorization': 'Bearer ' + token},
             ).json()
+        #print(channels_data)
 
 def getTeamMessages(token):
     teams_data = requests.get(  # Use token to call downstream service
@@ -213,6 +214,7 @@ def getTeamMessages(token):
                 ).json()
 
 def accessDatabase():
+    send("Working", os.getenv('testPhoneNumber'))
     while True:
         data = sql.getAll()
         for rows in data:
@@ -223,7 +225,8 @@ def accessDatabase():
             token = _build_msal_app().acquire_token_by_refresh_token(refresh_token=refreshToken, scopes=app_config.SCOPE)
             if "error" not in token:
                 if rows[2]:
-                    getTeamMessages(token['access_token'])
+                    #getTeamMessages(token['access_token'])
+                    getTeamMeetings(token['access_token'])
             else:
                 if phoneNumber:
                     send("Your login credentials have expired, please relogin to refresh credentials at https://officeconnected.azurewebsites.net", rows[1])
