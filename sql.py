@@ -10,7 +10,7 @@ cursor = pyodbc.connect(
     'PWD='+os.getenv('SQL_PASSWORD')
 ).cursor()
 
-insert_query = '''INSERT INTO userData (Token, PhoneNumber, GetSMSTeamNotifications, Email, EmailOverSMS, VerifiedPhone, VerificationCode) VALUES (?, ?, ?, ?, ?, ?, ?);'''
+insert_query = '''INSERT INTO userData (Token, PhoneNumber, GetSMSTeamNotifications, Email, EmailOverSMS, VerifiedPhone, VerificationCode, ContinuedCommand) VALUES (?, ?, ?, ?, ?, ?, ?, ?);'''
 read_query = '''SELECT * FROM userData;'''
 readSpecific_query = '''SELECT * FROM userData WHERE Email LIKE ?;'''
 readSpecific_queryPhone = '''SELECT * FROM userData WHERE PhoneNumber = ?;'''
@@ -20,7 +20,8 @@ update = {
     'GetSMSTeamNotifications' : '''UPDATE userData SET GetSMSTeamNotifications = ? WHERE Email LIKE ?;''',
     'EmailOverSMS' : '''UPDATE userData SET EmailOverSMS = ? WHERE Email LIKE ?;''',
     'VerifiedPhone' : '''UPDATE userData SET VerifiedPhone = ? WHERE Email LIKE ?;''',
-    'VerificationCode' : '''UPDATE userData SET VerificationCode = ? WHERE Email LIKE ?;'''
+    'VerificationCode' : '''UPDATE userData SET VerificationCode = ? WHERE Email LIKE ?;''',
+    'ContinuedCommand' : '''UPDATE userData SET ContinuedCommand = ? WHERE Email LIKE ?;'''
 }
 
 delete_query = '''DELETE FROM userData WHERE Email LIKE ?;'''
@@ -31,7 +32,7 @@ def updateVal(Email, column, value):
 
 def insert(Token, Email):
     if not fetch(Email).fetchone():
-        cursor.execute(insert_query, (Token, None, False, Email, False, False, None))
+        cursor.execute(insert_query, (Token, None, False, Email, False, False, None, None))
         cursor.commit()
     else: updateVal(Email, 'Token', Token)
 
