@@ -54,199 +54,215 @@ def sms_reply():
         if not userData:
             resp.message("OfficeConnected: Your phone number is currently not saved on our database, please visit https://officeconnect.azurewebsites.net to connect your phone")
         else:
-            # Acquires access token of user and checks if token is still valid
-            token = _build_msal_app().acquire_token_by_refresh_token(refresh_token=userData[0], scopes=app_config.SCOPE)['access_token']
-            if "error" in token:
-                resp.message("OfficeConnected: Your login credentials have expired, please relogin to refresh credentials at https://officeconnected.azurewebsites.net")
-            else:
-                # Retrieves email of the user to easily update information regarding the user
-                email = userData[3]
+            # Retrieves email of the user to easily update information regarding the user
+            email = userData[3]
+
+            # Checks if refresh token hasn't been already flagged as invalid
+            if userData[0]:
+                # Tries to acquire access token of user and checks if token is still valid
+                try:
+                    token = _build_msal_app().acquire_token_by_refresh_token(refresh_token=userData[0], scopes=app_config.SCOPE)['access_token']
+                except:
+                    # Creates token with error
+                    token = {
+                        'error' : 'failed to get token'
+                    }
                 
-                # Gets message from the user
-                message = request.form['Body']
-
-                # Checks if the user hasn't verified their number
-                if not userData[5]:
-                    # Checks if the user is wishing to verify their number with the command 'LINK'
-                    if message.upper() == 'LINK':
-                        # Creates verification code, replies verification code to user, and updates verification code on the database
-                        verificationCode = str("".join(random.choice(string.ascii_letters + string.digits) for i in range(6)))
-                        resp.message("OfficeConnected: Your verification code is %s" % verificationCode)
-                        sql.updateVal(email, 'VerificationCode', verificationCode)
-                    
-                    # Checks if the user wishes to unlink their phone number
-                    elif message.upper() == 'UNLINK':
-                        # Responds confirming that phone number has been removed from the database and removing the phone number from the database
-                        resp.message("OfficeConnected: Alright, your phone has been removed from our database")
-                        sql.updateVal(email, 'PhoneNumber', None)
-                    else:
-                        # Gives an error that their phone number is not verified
-                        resp.message("OfficeConnected: You're phone number is currently unverified on our system. Please verify your phone number by responding with 'LINK' and entering your code at our website https://officeconnected.azurewebsites.net 1/2")
-                        resp.message("If you wish to remove your phone number from our database, reply with 'UNLINK'")
+                # Checks if there's an error in token and tells user that there's an error
+                if "error" in token:
+                    resp.message("OfficeConnected: Your login credentials have expired, please relogin to refresh credentials at https://officeconnected.azurewebsites.net")
+                    sql.updateVal(email, 'Token', None)
                 else:
-                    # Commands to the SMS service
 
-                    # Command for cancelling a continuing command
-                    if message.upper() == 'CANCELCMD':
-                        # Checks if the user actually intialized a continuing command and cancels the command
-                        if userData[7]:
-                            resp.message("OfficeConmnected: Alright, your recent command has been cancelled")
-                            sql.updateVal(email, 'ContinuedCommand', None)
+                    # Gets message from the user
+                    message = request.form['Body']
+
+                    # Checks if the user hasn't verified their number
+                    if not userData[5]:
+                        # Checks if the user is wishing to verify their number with the command 'LINK'
+                        if message.upper() == 'LINK':
+                            # Creates verification code, replies verification code to user, and updates verification code on the database
+                            verificationCode = str("".join(random.choice(string.ascii_letters + string.digits) for i in range(6)))
+                            resp.message("OfficeConnected: Your verification code is %s" % verificationCode)
+                            sql.updateVal(email, 'VerificationCode', verificationCode)
+
+                        # Checks if the user wishes to unlink their phone number
+                        elif message.upper() == 'UNLINK':
+                            # Responds confirming that phone number has been removed from the database and removing the phone number from the database
+                            resp.message("OfficeConnected: Alright, your phone has been removed from our database")
+                            sql.updateVal(email, 'PhoneNumber', None)
                         else:
-                            # Gives an error that the user didn't intialize a command
-                            resp.message("OfficeConnected: You have no active continuing commands to cancel.")
-                    
-                    # Continuing commands
-                    # Checks if the user has intialized continuing commands
-                    elif userData[7]:
-                        # Checks if the user wishes to send a message to Teams and has already intialized the command
-                        if userData[7] == 'MESSAGE':
-                            # Makes a GET request via Microsoft Graphs API to get information regarding the teams that the user has joined 
-                            teamsData = requests.get(
-                                app_config.ENDPOINT + '/me/joinedTeams',
-                                headers={'Authorization': 'Bearer ' + token},
-                                ).json()
-                            
-                            # Stores the ID of the team, unless the selected team is invalid in which it remains None
-                            teamID = None
-                            
-                            # Searches through all the teams that the user has joined, and checks if the user selected one their teams they've joined
-                            # and updates teamID to the ID of the selected team
-                            for teams in teamsData['value']:
-                                if message == teams['displayName']:
-                                    teamID = teams['id']
-                                    break
+                            # Gives an error that their phone number is not verified
+                            resp.message("OfficeConnected: You're phone number is currently unverified on our system. Please verify your phone number by responding with 'LINK' and entering your code at our website https://officeconnected.azurewebsites.net 1/2")
+                            resp.message("If you wish to remove your phone number from our database, reply with 'UNLINK'")
+                    else:
+                        # Commands to the SMS service
 
-                            # If the user has selected a valid team
-                            if teamID:
-                                # Array for storing names of all the channels of the respective team
-                                channelNames = []
+                        # Command for cancelling a continuing command
+                        if message.upper() == 'CANCELCMD':
+                            # Checks if the user actually intialized a continuing command and cancels the command
+                            if userData[7]:
+                                resp.message("OfficeConmnected: Alright, your recent command has been cancelled")
+                                sql.updateVal(email, 'ContinuedCommand', None)
+                            else:
+                                # Gives an error that the user didn't intialize a command
+                                resp.message("OfficeConnected: You have no active continuing commands to cancel.")
+
+                        # Continuing commands
+                        # Checks if the user has intialized continuing commands
+                        elif userData[7]:
+                            # Checks if the user wishes to send a message to Teams and has already intialized the command
+                            if userData[7] == 'MESSAGE':
+                                # Makes a GET request via Microsoft Graphs API to get information regarding the teams that the user has joined 
+                                teamsData = requests.get(
+                                    app_config.ENDPOINT + '/me/joinedTeams',
+                                    headers={'Authorization': 'Bearer ' + token},
+                                    ).json()
+
+                                # Stores the ID of the team, unless the selected team is invalid in which it remains None
+                                teamID = None
+
+                                # Searches through all the teams that the user has joined, and checks if the user selected one their teams they've joined
+                                # and updates teamID to the ID of the selected team
+                                for teams in teamsData['value']:
+                                    if message == teams['displayName']:
+                                        teamID = teams['id']
+                                        break
+
+                                # If the user has selected a valid team
+                                if teamID:
+                                    # Array for storing names of all the channels of the respective team
+                                    channelNames = []
+
+                                    # Makes a GET request via Microsoft Graphs API to get information regarding the channels in the team that was selected
+                                    channelsData = requests.get(
+                                        app_config.ENDPOINT + '/teams/' + teamID + '/channels',
+                                        headers={'Authorization': 'Bearer ' + token},
+                                        ).json()
+
+                                    # Gets all the names of the channels and combines them into a joined string
+                                    for channels in channelsData['value']:
+                                        channelNames.append(channels['displayName'])
+                                    stringOfNames = ", ".join(channelNames)
+
+                                    # Replies with a list of channels to select from
+                                    resp.message("OfficeConnected: Select one of the channels of %s: %s" % (message, stringOfNames))
+
+                                    # Updates ContinuedCommand with the selected team ID
+                                    sql.updateVal(email, 'ContinuedCommand', 'TEAM"%s"' % teamID)
+                                else:
+                                    # User has selected an invalid team and an error is sent to the user
+                                    resp.message("OfficeConnected: That team name is invalid. Make sure it's correctly spelt (case sensetive). If you wish to cancel this command, reply with 'CANCELCMD'")
+
+                            # User wishes to send a message to Teams and has already selected a team
+                            elif userData[7][:4] == 'TEAM':
+                                # Gets the team ID from the data stored about the continued command on the database
+                                command = userData[7]
+                                teamID = command[command.find('"') + 1 : command.rfind('"')]
 
                                 # Makes a GET request via Microsoft Graphs API to get information regarding the channels in the team that was selected
                                 channelsData = requests.get(
                                     app_config.ENDPOINT + '/teams/' + teamID + '/channels',
                                     headers={'Authorization': 'Bearer ' + token},
                                     ).json()
-                                
-                                # Gets all the names of the channels and combines them into a joined string
+
+                                # Stores the ID of the channel, unless the selected team is invalid in which it remains None
+                                channelID = None
+
+                                # Searches through all the channels in the team selected and makes sure that the channel is valid
+                                # as well as update the channel ID value to the selected value
                                 for channels in channelsData['value']:
-                                    channelNames.append(channels['displayName'])
-                                stringOfNames = ", ".join(channelNames)
+                                    if message == channels['displayName']:
+                                        channelID = channels['id']
+                                        break
+                                    
+                                # If the channel selected is valid
+                                if channelID:
+                                    # Asks the user for the intended message and updates the continued command on the database with the channel ID
+                                    resp.message("OfficeConnected: Type your message")
+                                    sql.updateVal(email, 'ContinuedCommand', 'CHANNEL"%s"%s' % (channelID, command))
+                                else:
+                                    # User has selected an invalid channel and an error is sent to the user
+                                    resp.message("OfficeConnected: That channel name is invalid. Make sure it's correctly spelt (case sensetive). If you wish to cancel this command, reply with 'CANCELCMD'")
 
-                                # Replies with a list of channels to select from
-                                resp.message("OfficeConnected: Select one of the channels of %s: %s" % (message, stringOfNames))
-                                
-                                # Updates ContinuedCommand with the selected team ID
-                                sql.updateVal(email, 'ContinuedCommand', 'TEAM"%s"' % teamID)
-                            else:
-                                # User has selected an invalid team and an error is sent to the user
-                                resp.message("OfficeConnected: That team name is invalid. Make sure it's correctly spelt (case sensetive). If you wish to cancel this command, reply with 'CANCELCMD'")
-                        
-                        # User wishes to send a message to Teams and has already selected a team
-                        elif userData[7][:4] == 'TEAM':
-                            # Gets the team ID from the data stored about the continued command on the database
-                            command = userData[7]
-                            teamID = command[command.find('"') + 1 : command.rfind('"')]
+                            # User wishes to send a message to Teams and a channel and team has already been selected
+                            elif userData[7][:7] == "CHANNEL":
+                                # Gets the team ID and channel ID from the stored command information on the database
+                                command = userData[7]
+                                channelID = command[command.find('"') + 1 : command.find('"', command.find('"') + 1)]
+                                command = command[command.find('"', command.find('"') + 1) + 1 :]
+                                teamID = command[command.find('"') + 1 : command.rfind('"')]
 
-                            # Makes a GET request via Microsoft Graphs API to get information regarding the channels in the team that was selected
-                            channelsData = requests.get(
-                                app_config.ENDPOINT + '/teams/' + teamID + '/channels',
+                                # Makes a POST request via Microsoft Graphs API with the message to the proper channel and team on Teams
+                                messagePost = requests.post(
+                                    app_config.ENDPOINT + '/teams/' + teamID + '/channels/' + channelID + '/messages',
+                                    headers={'Authorization': 'Bearer ' + token},
+                                    json={
+                                        "body" : {
+                                            "content" : message
+                                        }
+                                    }
+                                ).json()
+
+                                # Checks if the POST request failed
+                                if 'error' in messagePost:
+                                    # Tells the user that the POST request wasn't able to send the message
+                                    resp.message("OfficeConnected: We're sorry, we weren't able to send the message.")
+                                    resp.messgae("Please type your message, or if you'd like to cancel this command, reply with 'CANCELCMD'")
+                                else:
+                                    # Tells the user that the message has been sent and that the continuing command has been cleared from the database
+                                    resp.message("OfficeConnected: Alright, message sent.")
+                                    sql.updateVal(email, 'ContinuedCommand', None)
+
+                        # Command to intialize continuing command regarding sending a message to Microsoft Teams
+                        elif message.upper() == 'MESSAGE':
+                            # Array for storing names of joined teams
+                            teamNames = []
+
+                            # Makes a GET request via Microsoft Graphs API getting the information regarding the joined teams of the user
+                            teamsData = requests.get(
+                                app_config.ENDPOINT + '/me/joinedTeams',
                                 headers={'Authorization': 'Bearer ' + token},
                                 ).json()
-                            
-                            # Stores the ID of the channel, unless the selected team is invalid in which it remains None
-                            channelID = None
 
-                            # Searches through all the channels in the team selected and makes sure that the channel is valid
-                            # as well as update the channel ID value to the selected value
-                            for channels in channelsData['value']:
-                                if message == channels['displayName']:
-                                    channelID = channels['id']
-                                    break
-                            
-                            # If the channel selected is valid
-                            if channelID:
-                                # Asks the user for the intended message and updates the continued command on the database with the channel ID
-                                resp.message("OfficeConnected: Type your message")
-                                sql.updateVal(email, 'ContinuedCommand', 'CHANNEL"%s"%s' % (channelID, command))
-                            else:
-                                # User has selected an invalid channel and an error is sent to the user
-                                resp.message("OfficeConnected: That channel name is invalid. Make sure it's correctly spelt (case sensetive). If you wish to cancel this command, reply with 'CANCELCMD'")
-                        
-                        # User wishes to send a message to Teams and a channel and team has already been selected
-                        elif userData[7][:7] == "CHANNEL":
-                            # Gets the team ID and channel ID from the stored command information on the database
-                            command = userData[7]
-                            channelID = command[command.find('"') + 1 : command.find('"', command.find('"') + 1)]
-                            command = command[command.find('"', command.find('"') + 1) + 1 :]
-                            teamID = command[command.find('"') + 1 : command.rfind('"')]
+                            # Makes a string full of the names of the joined teams
+                            for teams in teamsData['value']:
+                                teamNames.append(teams['displayName'])
+                            stringOfNames = ", ".join(teamNames)
 
-                            # Makes a POST request via Microsoft Graphs API with the message to the proper channel and team on Teams
-                            messagePost = requests.post(
-                                app_config.ENDPOINT + '/teams/' + teamID + '/channels/' + channelID + '/messages',
-                                headers={'Authorization': 'Bearer ' + token},
-                                json={
-                                    "body" : {
-                                        "content" : message
-                                    }
-                                }
-                            ).json()
+                            # Replies to the user with the list of teams to select
+                            resp.message("OfficeConnected: Select one of your teams to message: %s" % stringOfNames)
 
-                            # Checks if the POST request failed
-                            if 'error' in messagePost:
-                                # Tells the user that the POST request wasn't able to send the message
-                                resp.message("OfficeConnected: We're sorry, we weren't able to send the message. Please type your message, or if you'd like to cancel this command, reply with 'CANCELCMD'")
-                            else:
-                                # Tells the user that the message has been sent and that the continuing command has been cleared from the database
-                                resp.message("OfficeConnected: Alright, message sent.")
-                                sql.updateVal(email, 'ContinuedCommand', None)
-                    
-                    # Command to intialize continuing command regarding sending a message to Microsoft Teams
-                    elif message.upper() == 'MESSAGE':
-                        # Array for storing names of joined teams
-                        teamNames = []
+                            # Updates the database that the user intends to have a continuing command
+                            sql.updateVal(email, 'ContinuedCommand', 'MESSAGE')
 
-                        # Makes a GET request via Microsoft Graphs API getting the information regarding the joined teams of the user
-                        teamsData = requests.get(
-                            app_config.ENDPOINT + '/me/joinedTeams',
-                            headers={'Authorization': 'Bearer ' + token},
-                            ).json()
-                        
-                        # Makes a string full of the names of the joined teams
-                        for teams in teamsData['value']:
-                            teamNames.append(teams['displayName'])
-                        stringOfNames = ", ".join(teamNames)
+                        # Error message to the user trying to link phone despite having phone already linked to their account
+                        elif message.upper() == 'LINK':
+                            resp.message("OfficeConnected: You already have your phone number linked, no need to link it again. If you wish to unlink your phone, reply with 'UNLINK'.")
 
-                        # Replies to the user with the list of teams to select
-                        resp.message("OfficeConnected: Select one of your teams to message: %s" % stringOfNames)
+                        # Command to unlink their phone from their account, with message confirming the removal as well as removal of data from the database
+                        elif message.upper() == 'UNLINK':
+                            resp.message("OfficeConnected: Alright, your phone has been unlinked from your account. To delete your account, please login at https://officeconnected.azurewebsites.net and hit 'Delete Account'")
+                            sql.updateVal(email, 'PhoneNumber', None)
+                            sql.updateVal(email, 'VerifiedPhone', False)
+                            sql.updateVal(email, 'VerificationCode', None)
 
-                        # Updates the database that the user intends to have a continuing command
-                        sql.updateVal(email, 'ContinuedCommand', 'MESSAGE')
+                        # Tells the user a list of commands
+                        elif message.upper() == 'CMD':
+                            print("List of commands here....")
+                            #resp.message()
 
-                    # Error message to the user trying to link phone despite having phone already linked to their account
-                    elif message.upper() == 'LINK':
-                        resp.message("OfficeConnected: You already have your phone number linked, no need to link it again. If you wish to unlink your phone, reply with 'UNLINK'.")
+                        # User wishes to intialize a continuing command regarding sending an email
+                        elif message.upper() == 'EMAIL':
+                            print("do something with emails")
 
-                    # Command to unlink their phone from their account, with message confirming the removal as well as removal of data from the database
-                    elif message.upper() == 'UNLINK':
-                        resp.message("OfficeConnected: Alright, your phone has been unlinked from your account. To delete your account, please login at https://officeconnected.azurewebsites.net and hit 'Delete Account'")
-                        sql.updateVal(email, 'PhoneNumber', None)
-                        sql.updateVal(email, 'VerifiedPhone', False)
-                        sql.updateVal(email, 'VerificationCode', None)
-                    
-                    # Tells the user a list of commands
-                    elif message.upper() == 'CMD':
-                        print("List of commands here....")
-                        #resp.message()
-                    
-                    # User wishes to intialize a continuing command regarding sending an email
-                    elif message.upper() == 'EMAIL':
-                        print("do something with emails")
+                        # User inputted an invalid command and error is spit out
+                        else:
+                            resp.message("OfficeConnected: Your command is not recognized by our system. Make sure you've typed it correctly or to find a list of commands, reply with 'CMD'")
+            else:
+                # If refresh token has already been flagged as invalid, reminds user token is invalid
+                resp.message("OfficeConnected: Your login credentials have expired, please relogin to refresh credentials at https://officeconnected.azurewebsites.net")
 
-                    # User inputted an invalid command and error is spit out
-                    else:
-                        resp.message("OfficeConnected: Your command is not recognized by our system. Make sure you've typed it correctly or to find a list of commands, reply with 'CMD'")
-    
     # Returns server response to the user
     return str(resp)
 
@@ -281,8 +297,8 @@ def index():
         emailOfUser = session["user"]["preferred_username"]
         databaseInfo = sql.fetch(emailOfUser).fetchone()
 
-        # if user is not found in database
-        if not databaseInfo:
+        # if user is not found in database or invalid refresh token
+        if not databaseInfo or not databaseInfo[0]:
             # logs out user
             return redirect(url_for("logout"))
 
@@ -392,188 +408,303 @@ def index():
 # lastCheckTime is the last time the server has began checking for Teams notifications
 # startCheckTime is the time the server began checking for the most recent Teams notifications
 
-# A few second delay has been set up so the server can fully catchup to the influx of notifications, rather than skipping or repeating notifications
+# A delay has been set up so the server can fully catchup to the influx of notifications, rather than skipping or repeating notifications
 
 # Retrieves Microsoft Teams meetings of the user
 def getTeamMeetings(token, phoneNumber, lastCheckTime, startCheckTime):
+    # Reminder time prior to meetings
     timeIncrements = [5, 10, 15, 30]
 
-    teamsData = requests.get(  # Use token to call downstream service
+    # Makes a GET request to retrieve all the teams that the user is joined
+    teamsData = requests.get(
         app_config.ENDPOINT + '/me/joinedTeams',
         headers={'Authorization': 'Bearer ' + token},
         ).json()
+    
+    # Goes through all the information regarding the joined teams of the user
     for joinedTeams in teamsData['value']:
+        # Gets the name of the team being referenced
         teamName = joinedTeams['displayName']
+
+        # Gets all the currently saved events of team that's being referenced
         teamsEvents = requests.get(
             app_config.ENDPOINT + '/groups/' + joinedTeams['id'] + '/events',
             headers={'Authorization': 'Bearer ' + token},
             ).json()
+        
+        # Goes through all the events (which are usually meetings on Teams) of the referenced team
         for teamsMeetings in teamsEvents['value']:
+            # Finds the start time of the event and takes the JSON date and converts into a format recognizable in Python
             eventStartTime = datetime.datetime.strptime(teamsMeetings['start']['dateTime'], '%Y-%m-%dT%H:%M:%S.%f0')
+
+            # Finds the time of last checked and when the server begins to start checking for new updates
             timeDifferenceFromLastChecked = int((eventStartTime - lastCheckTime).total_seconds())
             timeDifferenceFromStartChecked = int((eventStartTime - startCheckTime).total_seconds())
+
+            # Checks if the currently team meeting has yet to start from the time the server last checked for new updates
             if timeDifferenceFromLastChecked > 0:
+                # Checks if the the team meeting has started since the server started checking for new updates and notifys the user
                 if timeDifferenceFromStartChecked <= 0:
                     send("OfficeConnected: You currently have a meeting with %s starting now" % teamName, phoneNumber)
                 else:
+                    # Checks if the team meeting is less than 30 minutes ahead of the server starting to check for new updates
                     if timeDifferenceFromStartChecked <= 1800:
+                        # Goes through all the in time increments that were specified prior to the meeting for notifications
                         for times in timeIncrements:
+                            # Checks if the last checked time was prior to the time increment, but the current check has commenced on or after the time prior to the meeting
                             if timeDifferenceFromLastChecked > times * 60 and timeDifferenceFromStartChecked <= times*60:
+                                # Sends a message notifying for upcoming meeting
                                 send("OfficeConnected: You currently have a meeting with %s in %d minutes" % (teamName, times), phoneNumber)
                                 break
+                    
+                    # Checks if the server last check prior to 24 hours before the meeting and has now reaches 24 hours til the meeting and notifys the user that a meeting is tomorrow
                     elif timeDifferenceFromStartChecked <= 86400 and timeDifferenceFromLastChecked > 86400:
                         send("OfficeConnected: Reminder you have a meeting with %s tomorrow" % teamName, phoneNumber)
 
+# Gets all the messages in Teams (without replies)
 def getTeamMessages(token, phoneNumber, lastCheckTime, startCheckTime):
+    # Makes a GET request to get only the name of the user
     nameOfUser = requests.get(
         app_config.ENDPOINT + '/me',
         headers={'Authorization' : 'Bearer ' + token},
     ).json()['displayName']
-    
-    teamsData = requests.get(  # Use token to call downstream service
+
+    # Gets all the information regarding all the joined teams of the user
+    teamsData = requests.get( 
         app_config.ENDPOINT + '/me/joinedTeams',
         headers={'Authorization': 'Bearer ' + token},
         ).json()
     
+    # Goes through each individual team
     for joinedTeams in teamsData['value']:
+        # Gets the name of the team
         teamName = joinedTeams['displayName']
-        channelsData = requests.get(  # Use token to call downstream service
+
+        # Gets all the information regarding the channels of the specified team
+        channelsData = requests.get(
             app_config.ENDPOINT + '/teams/' + joinedTeams['id'] + '/channels',
             headers={'Authorization': 'Bearer ' + token},
             ).json()
         
+        # Goes through each individual channel of the team
         for channels in channelsData['value']:
-            messagesData = requests.get(  # Use token to call downstream service
+            # Gets all the data regarding each message on the channel
+            messagesData = requests.get(
                 app_config.ENDPOINT + '/teams/' + joinedTeams['id'] + '/channels/' + channels['id'] + '/messages',
                 headers={'Authorization': 'Bearer ' + token},
                 ).json()
             
+            # Goes through each individual message in the channel
             for messages in messagesData['value']:
-                repliesData = requests.get(
+                # Detecting for cancelled meeting
+                # Checks if the message in question is regarding a scheduled meeting
+                if "Scheduled a meeting" in messages['body']['content']:
+                    # Gets all the replies of the specified message
+                    repliesData = requests.get(
                     app_config.ENDPOINT + '/teams/' + joinedTeams['id'] + '/channels/' + channels['id'] + '/messages/' + messages['id'] + '/replies',
                     headers={'Authorization': 'Bearer ' + token},
                     ).json()
-                
-                if "Scheduled a meeting" in messages['body']['content']:
+
+                    # Goes through each individual reply of the message regarding the scheduled meeting
                     for replies in repliesData['value']:
-                        reply = replies["body"]["content"]
-                        if startCheckTime >= datetime.datetime.strptime(replies['createdDateTime'], '%Y-%m-%dT%H:%M:%S.%fZ') >= lastCheckTime:
-                            if '\"' in reply and reply.find('\"') != reply.rfind('\"'):
-                                meetingName = reply[reply.find('\"')+1 : reply.rfind('\"')]
-                                reply = reply[:reply.find('\"')-1] + reply[reply.rfind('\"')+1:]
-                                if reply == "The meeting has been cancelled":
-                                    send("OfficeConnected: Your meeting regarding %s with %s has been cancelled" % (meetingName, teamName), phoneNumber)
+                        # Checks if the reply is text rather than HTML or another type
+                        if replies["body"]["contentType"] == "text":
+                            # Gets the reply
+                            reply = replies["body"]["content"]
+
+                            # Checks if the message hasn't been checked over by the servers yet
+                            if startCheckTime >= datetime.datetime.strptime(replies['createdDateTime'], '%Y-%m-%dT%H:%M:%S.%fZ') >= lastCheckTime:
+                                # Finds if the quotes are contained inside the reply (which the notification for a cancelled meeting contians quotes with the meeting name)
+                                if '"' in reply and reply.find('"') != reply.rfind('"'):
+                                    # Gets the meeting name and removes the meeting name from the reply
+                                    meetingName = reply[reply.find('"')+1 : reply.rfind('"')]
+                                    reply = reply[:reply.find('"')-1] + reply[reply.rfind('"')+1:]
+                                    
+                                    # Checks if the reply is regarding a cancelled meeting and notifys the user about the cancelled meeting
+                                    if reply == "The meeting has been cancelled":
+                                        send("OfficeConnected: Your meeting regarding %s with %s has been cancelled" % (meetingName, teamName), phoneNumber)
                 
-                elif messages["body"]["contentType"] == "text" and messages["from"]["user"]["displayName"] != nameOfUser:
-                    if messages["lastModifiedDateTime"] and startCheckTime >= datetime.datetime.strptime(messages["lastModifiedDateTime"], '%Y-%m-%dT%H:%M:%S.%fZ') >= lastCheckTime:
-                        message = messages["body"]["content"]
-                        speaker = messages["from"]["user"]["displayName"]
-                        send("OfficeConnected: (%s) %s modified: %s" % (teamName, speaker, message), phoneNumber)
+                # Detecting normal messages on the channel
+                # Checks if the message doesn't originate from the user and is a message from a user
+                elif messages.get("from").get("user") and messages["from"]["user"]["displayName"] != nameOfUser:
+                    speaker = messages["from"]["user"]["displayName"]
+                    # Checks if the message contains text
+                    if messages["body"]["contentType"] == "text":
+                        # Checks if the message has been modified and that the text was modified recently between the time the server started checking and the time the server last checked
+                        if messages["lastModifiedDateTime"] and startCheckTime >= datetime.datetime.strptime(messages["lastModifiedDateTime"], '%Y-%m-%dT%H:%M:%S.%fZ') >= lastCheckTime:
+                            # Gets the message and sends the message to the user
+                            message = messages["body"]["content"]
+                            send("OfficeConnected: (%s) %s modified: %s" % (teamName, speaker, message), phoneNumber)
+                        
+                        # Checks if the message hasn't been modified and that the text was created recently between the time the server started checking and the time the server last checked
+                        elif startCheckTime >= datetime.datetime.strptime(messages["createdDateTime"], '%Y-%m-%dT%H:%M:%S.%fZ') >= lastCheckTime:
+                            # Gets the message and sends the message to the user
+                            message = messages["body"]["content"]
+                            send("OfficeConnected: (%s) %s: %s" % (teamName, speaker, message), phoneNumber)
+                    # Else if the message isn't text, but the message was created recently between the time the server started checking the and the time the server last checked
                     elif startCheckTime >= datetime.datetime.strptime(messages["createdDateTime"], '%Y-%m-%dT%H:%M:%S.%fZ') >= lastCheckTime:
-                        message = messages["body"]["content"]
-                        speaker = messages["from"]["user"]["displayName"]
-                        send("OfficeConnected: (%s) %s: %s" % (teamName, speaker, message), phoneNumber)
+                        # Sends a notification regarding the incompatible message to the user
+                        send("OfficeConnected: %s has said something on %s" % (speaker, teamName), phoneNumber)
+
 
 
 def getEmailOverSMS(token, phoneNumber, lastCheckTime):
     print("do something here idk")
 
+# Function that goes through the database to update and send data to the user
 def accessDatabase():
+    # Variable for the last known time the server has been checked
     lastCheckTime = datetime.datetime.utcnow()
     while True:
-        data = sql.getAll()
         try:
+            # Gets all the queries on the database
+            database = sql.getAll()
+            # Variable for the time the server started checking for updates
             startCheckTime = datetime.datetime.utcnow()
-            for rows in data:
-                refreshToken = rows[0]
-                verifiedPhone = rows[5]
-                phoneNumber = rows[1]
-                getSMSTeamsNotifications = rows[2]
-                try:
-                    token = _build_msal_app().acquire_token_by_refresh_token(refresh_token=refreshToken, scopes=app_config.SCOPE)
-                except:
-                    if phoneNumber and verifiedPhone:
-                        send("OfficeConnected: Your login credentials have expired, please relogin to refresh credentials at https://officeconnected.azurewebsites.net", rows[1])
-                    sql.delete(rows[3])
-                    break
-                if "error" not in token:
-                    if rows[2] and phoneNumber:
-                        getTeamMessages(token['access_token'], phoneNumber, lastCheckTime, startCheckTime)
-                        getTeamMeetings(token['access_token'], phoneNumber, lastCheckTime, startCheckTime)
-                    #if rows[4]:
-                        #getEmailOverSMS(token['access_token'], phoneNumber, lastCheckTime)
+
+            # Goes through all the queries on the database
+            for userData in database:
+                # Gets the user's refresh token
+                refreshToken = userData[0]
+                
+                # Checks if the user has a verified has a verified phone number and creates variable storing phone number if verified
+                verifiedPhone = userData[5]
+                if verifiedPhone:
+                    phoneNumber = userData[1]
                 else:
-                    if phoneNumber and verifiedPhone:
-                        send("OfficeConnected: Your login credentials have expired, please relogin to refresh credentials at https://officeconnected.azurewebsites.net", rows[1])
-                    sql.delete(rows[3])
-                    break
+                    phoneNumber = None
+                # Checks if refresh token hasn't been flagged as invalid
+                if refreshToken:
+                    # Checks if the user has opted in to SMS notifications
+                    getSMSTeamsNotifications = userData[2]
+
+                    # Attempts to get an access token
+                    try:
+                        token = _build_msal_app().acquire_token_by_refresh_token(refresh_token=refreshToken, scopes=app_config.SCOPE)
+                    except:
+                        # Creates token with error telling that it failed to get an access token
+                        token = {
+                            "error" : "failed to get token"
+                        }
+                    
+                    # Checks if the token doesn't contain an error
+                    if "error" not in token:
+                        # Goes through and tries to get data requested by the user (such as getting Teams notifications or email info), if a phone number is also specified
+                        if phoneNumber:
+                            if getSMSTeamsNotifications:
+                                getTeamMessages(token['access_token'], phoneNumber, lastCheckTime, startCheckTime)
+                                getTeamMeetings(token['access_token'], phoneNumber, lastCheckTime, startCheckTime)
+                            #if rows[4]:
+                                #getEmailOverSMS(token['access_token'], phoneNumber, lastCheckTime)
+                    else:
+                        # If code does contain an error, tells user about the error (if phone number is specified and verified) and updates refresh token to be invalid
+                        if phoneNumber:
+                            send("OfficeConnected: Your login credentials have expired, please relogin to refresh credentials at https://officeconnected.azurewebsites.net", phoneNumber)
+                        sql.updateVal(userData[3], 'Token', None)
+                        break
+            # Updates last check time to become last checked time
             lastCheckTime = startCheckTime
         except:
             pass
         
-
-@app.route(app_config.REDIRECT_PATH)  # Its absolute URL must match your app's redirect_uri set in AAD
+# Redirect from OAuth2 login
+@app.route(app_config.REDIRECT_PATH)
 def authorized():
+    # Checks if the state has been changed from the login and redirects back to the index page
     if request.args.get('state') != session.get("state"):
-        return redirect(url_for("index"))  # No-OP. Goes back to Index page
-    if "error" in request.args:  # Authentication/Authorization failure
+        return redirect(url_for("index", error="Login failed", error_description="Login has failed, please try again"))
+
+    # Error in the authentication/authorization (such as cancelling approval of allowing permissions) and redirect back with error
+    if "error" in request.args:
         return redirect(url_for("index", **request.args))
+    
+    # If login was somewhat successfuly
     if request.args.get('code'):
+        # Gets cached data
         cache = _load_cache()
+
+        # Gets token of user
         result = _build_msal_app(cache=cache).acquire_token_by_authorization_code(
             request.args['code'],
-            scopes=app_config.SCOPE,  # Misspelled scope would cause an HTTP 400 error here
+            scopes=app_config.SCOPE,
             redirect_uri=url_for("authorized", _external=True, _scheme=protocolScheme))
+        
+        # Checks if token is invalid and redirects back to index with error
         if "error" in result:
             return redirect(url_for("index", **request.args))
+        
+        # Saves token into session and cache
         session["user"] = result.get("id_token_claims")
         _save_cache(cache)
 
+    # Inserts user information into SQL database
     sql.insert(_get_token_from_cache(app_config.SCOPE)['refresh_token'], session["user"]["preferred_username"])
 
+    # Redirects user back to index
     return redirect(url_for("index"))
 
+# User log out (clears data locally)
 @app.route("/logout")
 def logout():
-    session.clear()  # Wipe out user and its token cache from session
+    # Wipes token and user data from session
+    session.clear()
+
+    # Redirects user back to index
     return redirect(url_for("index"))
 
-# Some random Microsoft Authentication Library Stuff (Just don't touch it.... it's very complicated)
+# Microsoft Authentication Library (MSAL) functions
+
+# Loads data from cache
 def _load_cache():
+    # Serialization token cache object for MSAL
     cache = msal.SerializableTokenCache()
+
+    # Checks if token cache is stored in session and deserializes token cache and returns the cache
     if session.get("token_cache"):
         cache.deserialize(session["token_cache"])
     return cache
 
+# Saves cache (if changed)
 def _save_cache(cache):
     if cache.has_state_changed:
         session["token_cache"] = cache.serialize()
 
+# Creates MSAL app object (with AAD App info)
 def _build_msal_app(cache=None, authority=None):
     return msal.ConfidentialClientApplication(
         app_config.CLIENT_ID, authority=authority or app_config.AUTHORITY,
         client_credential=app_config.CLIENT_SECRET, token_cache=cache)
 
+# Creates url that the user logins into for OAuth
 def _build_auth_url(authority=None, scopes=None, state=None):
     return _build_msal_app(authority=authority).get_authorization_request_url(
         scopes or [],
         state=state or str(uuid.uuid4()),
         redirect_uri=url_for("authorized", _external=True, _scheme=protocolScheme))
 
+# Gets token from cache
 def _get_token_from_cache(scope=None):
-    cache = _load_cache()  # This web app maintains one cache per session
+    # Gets cache
+    cache = _load_cache()
+
+    # Gets MSAL app
     cca = _build_msal_app(cache=cache)
+
+    # Gets list of accounts logged in
     accounts = cca.get_accounts()
-    if accounts:  # So all account(s) belong to the current signed-in user
-        result = cca.acquire_token_silent(scope, account=accounts[0], force_refresh=True) # Allowing refresh tokens so we retrieve them in SQL database
+
+    # So all account(s) belong to the current signed-in user
+    if accounts:
+        # Getting token with refresh token and saving to cache
+        result = cca.acquire_token_silent(scope, account=accounts[0], force_refresh=True)
         _save_cache(cache)
         return result
 
-app.jinja_env.globals.update(_build_auth_url=_build_auth_url)  # Used in template
-
+# New thread for constantly checking for database
 accessDatabaseThread = threading.Thread(target=accessDatabase)
 accessDatabaseThread.start()
 
+# Starts Flask server
 if __name__ == "__main__":
     app.run()
 
