@@ -13,7 +13,7 @@ app = Flask(__name__)
 app.config.from_object(app_config)
 Session(app)
 
-protocolScheme = 'http'
+protocolScheme = 'https'
 
 # Messaging service for Twilio
 def send(text, to):
