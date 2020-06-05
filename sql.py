@@ -39,9 +39,6 @@ def insert(Token, Email):
         cursor.commit()
     else: updateVal(Email, 'Token', Token)
 
-# Not needed as of this moment, update and implement if needed
-# 'all' : ''' UPDATE userData SET Token = ?, PhoneNumber = ?, GetSMSTeamNotifications = ?, EmailOverSMS = ? WHERE Email LIKE ?;'''
-
 def fetch(Email):
     return rcursor.execute(readSpecific_query, (Email))
 
@@ -55,5 +52,3 @@ def delete(Email):
     if fetch(Email).fetchone():
         cursor.execute(delete_query, Email)
         cursor.commit()
-        return True
-    return False
