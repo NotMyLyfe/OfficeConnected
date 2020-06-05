@@ -176,7 +176,7 @@ def index():
 
     return render_template('home.html', **htmlArguments)
 
-def getTeamMeetings(token, phoneNumber, lastCheckTime):
+def getTeamMeetings(token, phoneNumber, lastCheckTime, startCheckTime):
     timeIncrements = [5, 10, 15, 30]
 
     teamsData = requests.get(  # Use token to call downstream service
@@ -191,75 +191,106 @@ def getTeamMeetings(token, phoneNumber, lastCheckTime):
             ).json()
         for teamsMeetings in teamsEvents['value']:
             eventStartTime = datetime.datetime.strptime(teamsMeetings['start']['dateTime'], '%Y-%m-%dT%H:%M:%S.%f0')
-            currentTime = datetime.datetime.utcnow()
             timeDifferenceFromLastChecked = int((eventStartTime - lastCheckTime).total_seconds())
-            timeDifferenceFromCurrentTime = int((eventStartTime - currentTime).total_seconds())
-            print(timeDifferenceFromCurrentTime, timeDifferenceFromLastChecked)
-            if timeDifferenceFromLastChecked >= 0:
-                if timeDifferenceFromCurrentTime <= 0:
+            timeDifferenceFromStartChecked = int((eventStartTime - startCheckTime).total_seconds())
+            if timeDifferenceFromLastChecked > 0:
+                if timeDifferenceFromStartChecked <= 0:
                     send("OfficeConnected: You currently have a meeting with %s starting now" % teamName, phoneNumber)
                 else:
-                    for times in timeIncrements:
-                        if timeDifferenceFromLastChecked >= times * 60 and timeDifferenceFromCurrentTime <= times*60:
-                            send("OfficeConnected: You currently have a meeting with %s in %d minutes" % (teamName, times), phoneNumber)
-                            break
+                    if timeDifferenceFromStartChecked <= 1800:
+                        for times in timeIncrements:
+                            if timeDifferenceFromLastChecked > times * 60 and timeDifferenceFromStartChecked <= times*60:
+                                send("OfficeConnected: You currently have a meeting with %s in %d minutes" % (teamName, times), phoneNumber)
+                                break
+                    elif timeDifferenceFromStartChecked <= 86400 and timeDifferenceFromLastChecked > 86400:
+                        send("OfficeConnected: Reminder you have a meeting with %s tomorrow" % teamName, phoneNumber)
 
-def getTeamMessages(token, phoneNumber, lastCheckTime):
+def getTeamMessages(token, phoneNumber, lastCheckTime, startCheckTime):
+    nameOfUser = requests.get(
+        app_config.ENDPOINT + '/me',
+        headers={'Authorization' : 'Bearer ' + token},
+    ).json()['displayName']
+    
     teamsData = requests.get(  # Use token to call downstream service
         app_config.ENDPOINT + '/me/joinedTeams',
         headers={'Authorization': 'Bearer ' + token},
         ).json()
+    
     for joinedTeams in teamsData['value']:
         teamName = joinedTeams['displayName']
         channelsData = requests.get(  # Use token to call downstream service
             app_config.ENDPOINT + '/teams/' + joinedTeams['id'] + '/channels',
             headers={'Authorization': 'Bearer ' + token},
             ).json()
+        
         for channels in channelsData['value']:
             messagesData = requests.get(  # Use token to call downstream service
                 app_config.ENDPOINT + '/teams/' + joinedTeams['id'] + '/channels/' + channels['id'] + '/messages',
                 headers={'Authorization': 'Bearer ' + token},
                 ).json()
+            
             for messages in messagesData['value']:
                 repliesData = requests.get(
                     app_config.ENDPOINT + '/teams/' + joinedTeams['id'] + '/channels/' + channels['id'] + '/messages/' + messages['id'] + '/replies',
                     headers={'Authorization': 'Bearer ' + token},
                     ).json()
-                messageIsRegardingMeeting = "Scheduled a meeting" in messages['body']['content']
-                for replies in repliesData['value']:
-                    reply = replies["body"]["content"]
-                    if messageIsRegardingMeeting:
-                        if '\"' in reply and reply.find('\"') != reply.rfind('\"'):
-                            meetingName = reply[reply.find('\"')+1 : reply.rfind('\"')]
-                            reply = reply[:reply.find('\"')-1] + reply[reply.rfind('\"')+1:]
-                            if reply == "The meeting has been cancelled":
-                                print(meetingName, reply)
+                
+                if "Scheduled a meeting" in messages['body']['content']:
+                    for replies in repliesData['value']:
+                        reply = replies["body"]["content"]
+                        if startCheckTime >= datetime.datetime.strptime(replies['createdDateTime'], '%Y-%m-%dT%H:%M:%S.%fZ') >= lastCheckTime:
+                            if '\"' in reply and reply.find('\"') != reply.rfind('\"'):
+                                meetingName = reply[reply.find('\"')+1 : reply.rfind('\"')]
+                                reply = reply[:reply.find('\"')-1] + reply[reply.rfind('\"')+1:]
+                                if reply == "The meeting has been cancelled":
+                                    send("OfficeConnected: Your meeting regarding %s with %s has been cancelled" % (meetingName, teamName), phoneNumber)
+                
+                elif messages["body"]["contentType"] == "text" and messages["from"]["user"]["displayName"] != nameOfUser:
+                    if messages["lastModifiedDateTime"] and startCheckTime >= datetime.datetime.strptime(messages["lastModifiedDateTime"], '%Y-%m-%dT%H:%M:%S.%fZ') >= lastCheckTime:
+                        messageBody = messages["body"]["content"]
+                        speaker = messages["from"]["user"]["displayName"]
+                        send("OfficeConnected: (%s) %s modified: %s" % (teamName, speaker, messageBody), phoneNumber)
+                    elif startCheckTime >= datetime.datetime.strptime(messages["createdDateTime"], '%Y-%m-%dT%H:%M:%S.%fZ') >= lastCheckTime:
+                        messageBody = messages["body"]["content"]
+                        speaker = messages["from"]["user"]["displayName"]
+                        send("OfficeConnected: (%s) %s: %s" % (teamName, speaker, messageBody), phoneNumber)
+
 
 def getEmailOverSMS(token, phoneNumber, lastCheckTime):
     print("do something here idk")
 
 def accessDatabase():
-    lastCheckTime = datetime.datetime.min
+    lastCheckTime = datetime.datetime.utcnow()
     while True:
         data = sql.getAll()
-        for rows in data:
-            refreshToken = rows[0]
-            phoneNumber = rows[1]
-            getSMSTeamsNotifications = rows[2]
-            
-            token = _build_msal_app().acquire_token_by_refresh_token(refresh_token=refreshToken, scopes=app_config.SCOPE)
-            if "error" not in token:
-                if rows[2] and phoneNumber:
-                    getTeamMessages(token['access_token'], phoneNumber, lastCheckTime)
-                    #getTeamMeetings(token['access_token'], phoneNumber, lastCheckTime)
-                #if rows[4]:
-                    #getEmailOverSMS(token['access_token'], phoneNumber, lastCheckTime)
-            else:
-                if phoneNumber:
-                    send("Your login credentials have expired, please relogin to refresh credentials at https://officeconnected.azurewebsites.net", rows[1])
-                sql.delete(rows[3])
-        
-        lastCheckTime = datetime.datetime.utcnow()
+        try:
+            startCheckTime = datetime.datetime.utcnow()
+            for rows in data:
+                refreshToken = rows[0]
+                verifiedPhone = rows[5]
+                phoneNumber = rows[1]
+                getSMSTeamsNotifications = rows[2]
+                try:
+                    token = _build_msal_app().acquire_token_by_refresh_token(refresh_token=refreshToken, scopes=app_config.SCOPE)
+                except:
+                    if phoneNumber and verifiedPhone:
+                        send("OfficeConnected: Your login credentials have expired, please relogin to refresh credentials at https://officeconnected.azurewebsites.net", rows[1])
+                    sql.delete(rows[3])
+                    break
+                if "error" not in token:
+                    if rows[2] and phoneNumber:
+                        getTeamMessages(token['access_token'], phoneNumber, lastCheckTime, startCheckTime)
+                        getTeamMeetings(token['access_token'], phoneNumber, lastCheckTime, startCheckTime)
+                    #if rows[4]:
+                        #getEmailOverSMS(token['access_token'], phoneNumber, lastCheckTime)
+                else:
+                    if phoneNumber and verifiedPhone:
+                        send("OfficeConnected: Your login credentials have expired, please relogin to refresh credentials at https://officeconnected.azurewebsites.net", rows[1])
+                    sql.delete(rows[3])
+                    break
+            lastCheckTime = startCheckTime
+        except:
+            pass
         
 
 @app.route(app_config.REDIRECT_PATH)  # Its absolute URL must match your app's redirect_uri set in AAD
@@ -321,8 +352,8 @@ def _get_token_from_cache(scope=None):
 
 app.jinja_env.globals.update(_build_auth_url=_build_auth_url)  # Used in template
 
-# accessDatabaseThread = threading.Thread(target=accessDatabase)
-# accessDatabaseThread.start()
+accessDatabaseThread = threading.Thread(target=accessDatabase)
+accessDatabaseThread.start()
 
 if __name__ == "__main__":
     app.run()
