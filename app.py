@@ -2,7 +2,7 @@
 # Gordon Lin and Evan Lu
 # 
 
-import uuid, requests, msal, app_config, pyodbc, sql, multiprocessing, os, random, string
+import uuid, requests, msal, app_config, pyodbc, sql, multiprocessing, os, random, string, threading, datetime
 from flask import Flask, render_template, session, request, redirect, url_for
 from flask_session import Session
 from twilio.twiml.messaging_response import MessagingResponse
@@ -13,15 +13,7 @@ app = Flask(__name__)
 app.config.from_object(app_config)
 Session(app)
 
-testing = False     # Set to True if running a local Flask server, if deploying to Azure, set to False
-# INPUTTING THE WRONG VALUE WILL CAUSE OAUTH2 TO RUN INTO AN ERROR
-# If encountering error AADSTS50011, change the value to opposite value
-
-# Changes protocol scheme based on if running on localhost or not, since OAuth2 requires HTTPS, except when running it locally, as you can't create an HTTPS request to localhost
-if testing:
-    protocolScheme = 'http' 
-else:
-    protocolScheme = 'https'
+protocolScheme = 'http'
 
 # Messaging service for Twilio
 def send(text, to):
@@ -184,52 +176,122 @@ def index():
 
     return render_template('home.html', **htmlArguments)
 
-# Multiprocessing functions (for running things in the background)
-def getTeamMeetings(token):
-    teams_data = requests.get(  # Use token to call downstream service
-        app_config.ENDPOINT + '/me/joinedTeams',
-        headers={'Authorization': 'Bearer ' + token},
-        ).json()
-    for joinedTeams in teams_data['value']:
-        channels_data = requests.get(  # Use token to call downstream service
-            app_config.ENDPOINT + '/teams/' + joinedTeams['id'] + '/channels',
-            headers={'Authorization': 'Bearer ' + token},
-            ).json()
-        #print(channels_data)
+def getTeamMeetings(token, phoneNumber, lastCheckTime, startCheckTime):
+    timeIncrements = [5, 10, 15, 30]
 
-def getTeamMessages(token):
-    teams_data = requests.get(  # Use token to call downstream service
+    teamsData = requests.get(  # Use token to call downstream service
         app_config.ENDPOINT + '/me/joinedTeams',
         headers={'Authorization': 'Bearer ' + token},
         ).json()
-    for joinedTeams in teams_data['value']:
-        channels_data = requests.get(  # Use token to call downstream service
+    for joinedTeams in teamsData['value']:
+        teamName = joinedTeams['displayName']
+        teamsEvents = requests.get(
+            app_config.ENDPOINT + '/groups/' + joinedTeams['id'] + '/events',
+            headers={'Authorization': 'Bearer ' + token},
+            ).json()
+        for teamsMeetings in teamsEvents['value']:
+            eventStartTime = datetime.datetime.strptime(teamsMeetings['start']['dateTime'], '%Y-%m-%dT%H:%M:%S.%f0')
+            timeDifferenceFromLastChecked = int((eventStartTime - lastCheckTime).total_seconds())
+            timeDifferenceFromStartChecked = int((eventStartTime - startCheckTime).total_seconds())
+            if timeDifferenceFromLastChecked > 0:
+                if timeDifferenceFromStartChecked <= 0:
+                    send("OfficeConnected: You currently have a meeting with %s starting now" % teamName, phoneNumber)
+                else:
+                    if timeDifferenceFromStartChecked <= 1800:
+                        for times in timeIncrements:
+                            if timeDifferenceFromLastChecked > times * 60 and timeDifferenceFromStartChecked <= times*60:
+                                send("OfficeConnected: You currently have a meeting with %s in %d minutes" % (teamName, times), phoneNumber)
+                                break
+                    elif timeDifferenceFromStartChecked <= 86400 and timeDifferenceFromLastChecked > 86400:
+                        send("OfficeConnected: Reminder you have a meeting with %s tomorrow" % teamName, phoneNumber)
+
+def getTeamMessages(token, phoneNumber, lastCheckTime, startCheckTime):
+    nameOfUser = requests.get(
+        app_config.ENDPOINT + '/me',
+        headers={'Authorization' : 'Bearer ' + token},
+    ).json()['displayName']
+    
+    teamsData = requests.get(  # Use token to call downstream service
+        app_config.ENDPOINT + '/me/joinedTeams',
+        headers={'Authorization': 'Bearer ' + token},
+        ).json()
+    
+    for joinedTeams in teamsData['value']:
+        teamName = joinedTeams['displayName']
+        channelsData = requests.get(  # Use token to call downstream service
             app_config.ENDPOINT + '/teams/' + joinedTeams['id'] + '/channels',
             headers={'Authorization': 'Bearer ' + token},
             ).json()
-        for channels in channels_data['value']:
-            messages_data = requests.get(  # Use token to call downstream service
+        
+        for channels in channelsData['value']:
+            messagesData = requests.get(  # Use token to call downstream service
                 app_config.ENDPOINT + '/teams/' + joinedTeams['id'] + '/channels/' + channels['id'] + '/messages',
                 headers={'Authorization': 'Bearer ' + token},
                 ).json()
+            
+            for messages in messagesData['value']:
+                repliesData = requests.get(
+                    app_config.ENDPOINT + '/teams/' + joinedTeams['id'] + '/channels/' + channels['id'] + '/messages/' + messages['id'] + '/replies',
+                    headers={'Authorization': 'Bearer ' + token},
+                    ).json()
+                
+                if "Scheduled a meeting" in messages['body']['content']:
+                    for replies in repliesData['value']:
+                        reply = replies["body"]["content"]
+                        if startCheckTime >= datetime.datetime.strptime(replies['createdDateTime'], '%Y-%m-%dT%H:%M:%S.%fZ') >= lastCheckTime:
+                            if '\"' in reply and reply.find('\"') != reply.rfind('\"'):
+                                meetingName = reply[reply.find('\"')+1 : reply.rfind('\"')]
+                                reply = reply[:reply.find('\"')-1] + reply[reply.rfind('\"')+1:]
+                                if reply == "The meeting has been cancelled":
+                                    send("OfficeConnected: Your meeting regarding %s with %s has been cancelled" % (meetingName, teamName), phoneNumber)
+                
+                elif messages["body"]["contentType"] == "text" and messages["from"]["user"]["displayName"] != nameOfUser:
+                    if messages["lastModifiedDateTime"] and startCheckTime >= datetime.datetime.strptime(messages["lastModifiedDateTime"], '%Y-%m-%dT%H:%M:%S.%fZ') >= lastCheckTime:
+                        messageBody = messages["body"]["content"]
+                        speaker = messages["from"]["user"]["displayName"]
+                        send("OfficeConnected: (%s) %s modified: %s" % (teamName, speaker, messageBody), phoneNumber)
+                    elif startCheckTime >= datetime.datetime.strptime(messages["createdDateTime"], '%Y-%m-%dT%H:%M:%S.%fZ') >= lastCheckTime:
+                        messageBody = messages["body"]["content"]
+                        speaker = messages["from"]["user"]["displayName"]
+                        send("OfficeConnected: (%s) %s: %s" % (teamName, speaker, messageBody), phoneNumber)
+
+
+def getEmailOverSMS(token, phoneNumber, lastCheckTime):
+    print("do something here idk")
 
 def accessDatabase():
+    lastCheckTime = datetime.datetime.utcnow()
     while True:
         data = sql.getAll()
-        for rows in data:
-            refreshToken = rows[0]
-            phoneNumber = rows[1]
-            getSMSTeamsNotifications = rows[2]
-            
-            token = _build_msal_app().acquire_token_by_refresh_token(refresh_token=refreshToken, scopes=app_config.SCOPE)
-            if "error" not in token:
-                if rows[2]:
-                    #getTeamMessages(token['access_token'])
-                    getTeamMeetings(token['access_token'])
-            else:
-                if phoneNumber:
-                    send("Your login credentials have expired, please relogin to refresh credentials at https://officeconnected.azurewebsites.net", rows[1])
-                sql.delete(rows[3])
+        try:
+            startCheckTime = datetime.datetime.utcnow()
+            for rows in data:
+                refreshToken = rows[0]
+                verifiedPhone = rows[5]
+                phoneNumber = rows[1]
+                getSMSTeamsNotifications = rows[2]
+                try:
+                    token = _build_msal_app().acquire_token_by_refresh_token(refresh_token=refreshToken, scopes=app_config.SCOPE)
+                except:
+                    if phoneNumber and verifiedPhone:
+                        send("OfficeConnected: Your login credentials have expired, please relogin to refresh credentials at https://officeconnected.azurewebsites.net", rows[1])
+                    sql.delete(rows[3])
+                    break
+                if "error" not in token:
+                    if rows[2] and phoneNumber:
+                        getTeamMessages(token['access_token'], phoneNumber, lastCheckTime, startCheckTime)
+                        getTeamMeetings(token['access_token'], phoneNumber, lastCheckTime, startCheckTime)
+                    #if rows[4]:
+                        #getEmailOverSMS(token['access_token'], phoneNumber, lastCheckTime)
+                else:
+                    if phoneNumber and verifiedPhone:
+                        send("OfficeConnected: Your login credentials have expired, please relogin to refresh credentials at https://officeconnected.azurewebsites.net", rows[1])
+                    sql.delete(rows[3])
+                    break
+            lastCheckTime = startCheckTime
+        except:
+            pass
+        
 
 @app.route(app_config.REDIRECT_PATH)  # Its absolute URL must match your app's redirect_uri set in AAD
 def authorized():
@@ -290,11 +352,9 @@ def _get_token_from_cache(scope=None):
 
 app.jinja_env.globals.update(_build_auth_url=_build_auth_url)  # Used in template
 
-send(str(__name__), os.getenv('testPhoneNumber'))
+accessDatabaseThread = threading.Thread(target=accessDatabase)
+accessDatabaseThread.start()
 
 if __name__ == "__main__":
-    send("Main", os.getenv('testPhoneNumber'))
-    accessDatabaseProcess = multiprocessing.Process(target=accessDatabase)
-    accessDatabaseProcess.start()
     app.run()
-    accessDatabaseProcess.join()
+
