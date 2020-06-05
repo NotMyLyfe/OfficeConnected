@@ -13,10 +13,7 @@ app = Flask(__name__)
 app.config.from_object(app_config)
 Session(app)
 
-# Protocol scheme for OAuth2
-# If running locally, set to 'http', otherwise, set to 'https'
-# OAuth can only be run on a secure connection, but secure connections can't be done to localhost
-protocolScheme = 'http'
+protocolScheme = 'https'
 
 # SMS messaging service to a phone number from the server
 def send(text, to):
