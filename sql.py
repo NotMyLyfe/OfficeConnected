@@ -14,9 +14,8 @@ connection = pyodbc.connect(
     'PWD='+os.getenv('SQL_PASSWORD')
 )
 
-# 2 cursors for SQL, one for writing and one for reading
+# Cursors for SQL
 cursor = connection.cursor()
-rcursor = connection.cursor()
 
 # Query for inserting a new row in SQL
 insert_query = '''SET NOCOUNT ON; INSERT INTO userData (Token, PhoneNumber, GetSMSTeamNotifications, Email, EmailOverSMS, VerifiedPhone, VerificationCode, ContinuedCommand) VALUES (?, ?, ?, ?, ?, ?, ?, ?);'''
@@ -58,8 +57,8 @@ def updateVal(Email, column, value):
 # Inserts a new row in SQL
 def insert(Token, Email):
     while True:
-        # Checks if email doesn't already exist and creates new row, else just updates the Token value of the row
         try:
+            # Checks if email doesn't already exist and creates new row, else just updates the Token value of the row
             if not fetch(Email).fetchone():
                 cursor.execute(insert_query, (Token, None, False, Email, False, False, None, None))
                 cursor.commit()
@@ -73,7 +72,7 @@ def insert(Token, Email):
 def fetch(Email):
     while True:
         try:
-            data = rcursor.execute(readSpecific_query, (Email))
+            data = cursor.execute(readSpecific_query, (Email))
             return data
         except:
             pass
@@ -82,16 +81,19 @@ def fetch(Email):
 def fetchPhone(PhoneNumber):
     while True:
         try:
-            data = rcursor.execute(readSpecific_queryPhone, (PhoneNumber))
+            data = cursor.execute(readSpecific_queryPhone, (PhoneNumber))
             return data
         except:
             pass
+
+# Seperate cursor for reading all rows (to not overwhelm the other cursors)
+readAllCursor = connection.cursor()
 
 # Gets all the rows in SQL
 def getAll():
     while True:
         try:
-            data = rcursor.execute(read_query)
+            data = readAllCursor.execute(read_query)
             return data
         except:
             pass
