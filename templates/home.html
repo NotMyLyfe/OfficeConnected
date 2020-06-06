@@ -1,22 +1,36 @@
+<!--
+  home.html
+  Gordon Lin and Evan Lu
+  HTML page for index of the website
+-->
+
+<!--Extends everything directly from layout.html (For more details, reference layout.html)-->
 {% extends "layout.html" %}
 {% block content %}
 <div class="jumbotron">
   <h1>OfficeConnected</h1>
   <p class="lead">Improving on Microsoft 365 (Formerly known as Office 365)</p>
+  <!--Checks if the user is signed in (with arguments passed through from Python)-->
   {% if user %}
+    <!--Displays user's name-->
     <h4>Welcome {{ user.name }}!</h4>
+
+    <!--Settings form-->
     <h5>Settings:</h5>
     <form method="POST">
+      <!--Phone numebr input box-->
       <div class="form-group">
         <label for="phoneNumber" style="padding-left: 20px;">Update your phone number (North America only):</label>
         <input for="tel" id="phoneNumber" name="phoneNumber" pattern="[0-9]{10}" value="{{prefilledPhoneNumber}}">
       </div>
+      <!--Checks if the user requires SMS verification with argument passed through from Python and shows verification input box-->
       {% if requireSMSVerification %}
       <div class="form-group">
         <label for="smsVerificationCode" style="padding-left: 20px;">Enter your SMS Verification Code:</label>
         <input for="text" id="smsVerificationCode" name="smsVerificationCode" pattern="[A-Za-z0-9]{6}">
       </div>
       {% endif %}
+      <!--Checkboxes for enabling/disabling getting Teams notifications or emails over SMS, which is prechecked if the user already has it enabled with arguments in Python-->
       <div class="form-check form-group">
         <label for="getTeamsNotifications" id="getTeamsNotifications">Get Microsoft Team Notifications:</label>
         <input class="form-check-input" type="checkbox" id="getTeamsNotifications" style="margin:10px;" name="getTeamsNotifications" {{'checked="checked"' if getTeamsNotificationsBool else ""}}>
@@ -25,13 +39,16 @@
         <label for="emailOverSMS" id="emailOverSMS">Enable emails over SMS:</label>
         <input class="form-check-input" type="checkbox" id="emailOverSMS" style="margin:10px;" name="emailOverSMS" {{'checked="checked"' if emailOverSMSBool else ""}}>
       </div>
+      <!--Button to send POST request to update settings-->
       <div class="form-group">
         <button type="submit" class="btn btn-primary" name="updateButton">Update settings</button>
       </div>
+      <!--Button to send POST request to delete account-->
       <div class="form-group">
         <button type="submit" class="btn btn-danger" name="deleteAccount">Delete account</button>
       </div>
     </form>
+  <!--Button to login if the user isn't signed in-->
   {% else %}
   <a href="{{auth_url}}" class="btn btn-primary">Click here to sign in</a>
   {% endif %}

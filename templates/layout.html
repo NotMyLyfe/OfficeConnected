@@ -1,22 +1,34 @@
+<!--
+  layout.html
+  Gordon Lin and Evan Lu
+  The basic layout of all the HTML files
+-->
+
 <!DOCTYPE html>
 <html>
   <head>
-    <title>OfficeConnected</title> <!--Name of site (seen on the tabs of browser-->
+    <!--Name of tab-->
+    <title>OfficeConnected</title>
     <!--Bootstrap style-->
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css" integrity="sha384-9aIt2nRpC12Uk9gS9baDl411NQApFmC26EwAOH8WgZl5MYYxFfc+NcPb1dKGj7Sk" crossorigin="anonymous">
   </head>
 
   <body>
+    <!--Top navigation bar on the screen-->
     <nav class="navbar navbar-expand-md navbar-dark fixed-top bg-dark">
       <div class="container">
+        <!--Clickable link back to "/"-->
         <a href="/" class="navbar-brand">OfficeConnected</a>
+        <!--Button to collapse navabr if the screen is too small to fit the full navbar-->
         <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarCollapse"
           aria-controls="navbarCollapse" aria-expanded="false" aria-label="Toggle navigation">
           <span class="navbar-toggler-icon"></span>
         </button>
+        <!--Collapsable section of the navbar-->
         <div class="collapse navbar-collapse" id="navbarCollapse">
           <ul class="navbar-nav justify-content-end">
               <li class="nav-item">
+                <!--Sign in/sign out button (depending if the user is already signed in)-->
                 {% if user %}
                 <a href="/logout" class="nav-link">Sign Out</a>
                 {% else %}
@@ -29,29 +41,22 @@
     </nav>
     <main role="main" class="container">
       <div class="jumbotron">
+        <!--Going through all the errors specified in Python and displaying through Bootstrap alerts-->
         {% for error in errors %}
         <div class="alert alert-danger" role="alert">
           <p class="mb-3">{{error.get("error")}}</p>
           <p>{{error.get("error_description")}}</p>
         </div>
         {% endfor %}
+        <!--Going through all the alerts specified in Python and displaying through Bootstrap alerts-->
         {% for alert in alerts %}
         <div class="alert alert-primary" role="alert">
           <p>{{alert}}</p>
         </div>
         {% endfor %}
+        <!--Extending rest of body to any HTML page that's extending to this file-->
         {% block content %}{% endblock %}
       </div>
     </main>
-
-    <script src="https://code.jquery.com/jquery-3.4.1.slim.min.js"
-      integrity="sha384-J6qa4849blE2+poT4WnyKhv5vZF5SrPo0iEjwBvKU7imGFAV0wwj1yYfoRSJoZ+n"
-      crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.0/dist/umd/popper.min.js"
-      integrity="sha384-Q6E9RHvbIyZFJoft+2mJbHaEWldlvI9IOYy5n3zV9zzTtmI3UksdQRVvoxMfooAo"
-      crossorigin="anonymous"></script>
-    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/js/bootstrap.min.js"
-      integrity="sha384-wfSDF2E50Y2D1uUdj0O3uMBJnjuUD4Ih7YwaYd1iqfktj0Uod8GCExl3Og8ifwB6"
-      crossorigin="anonymous"></script>
   </body>
 </html>
