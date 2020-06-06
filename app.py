@@ -1,6 +1,7 @@
 # app.py
 # Gordon Lin and Evan Lu
-# 
+# Web app that can interact with Microsoft 365 services directly from SMS
+# Can receive Microsoft Teams notifications, send Teams messages, receive/send emails
 
 import uuid, requests, msal, app_config, pyodbc, sql, multiprocessing, os, random, string, threading, datetime
 from flask import Flask, render_template, session, request, redirect, url_for
@@ -13,6 +14,9 @@ app = Flask(__name__)
 app.config.from_object(app_config)
 Session(app)
 
+# Protocol scheme for OAuth2
+# If running locally, set to 'http', otherwise, set to 'https'
+# OAuth can only be run on a secure connection, but secure connections can't be done to localhost
 protocolScheme = 'https'
 
 # SMS messaging service to a phone number from the server
@@ -95,6 +99,9 @@ def sms_reply():
                     else:
                         # Commands to the SMS service
 
+                        # Variable for storing if the user wishes to allow email over SMS
+                        emailOverSMS = userData[4]
+
                         # Command for cancelling a continuing command
                         if message.upper() == 'CANCELCMD':
                             # Checks if the user actually intialized a continuing command and cancels the command
@@ -146,7 +153,7 @@ def sms_reply():
                                     resp.message("OfficeConnected: Select one of the channels of %s: %s" % (message, stringOfNames))
 
                                     # Updates ContinuedCommand with the selected team ID
-                                    sql.updateVal(email, 'ContinuedCommand', 'TEAM"%s"' % teamID)
+                                    sql.updateVal(email, 'ContinuedCommand', 'TEAM%s' % teamID)
                                 else:
                                     # User has selected an invalid team and an error is sent to the user
                                     resp.message("OfficeConnected: That team name is invalid. Make sure it's correctly spelt (case sensetive). If you wish to cancel this command, reply with 'CANCELCMD'")
@@ -155,7 +162,7 @@ def sms_reply():
                             elif userData[7][:4] == 'TEAM':
                                 # Gets the team ID from the data stored about the continued command on the database
                                 command = userData[7]
-                                teamID = command[command.find('"') + 1 : command.rfind('"')]
+                                teamID = command[4:]
 
                                 # Makes a GET request via Microsoft Graphs API to get information regarding the channels in the team that was selected
                                 channelsData = requests.get(
@@ -177,7 +184,7 @@ def sms_reply():
                                 if channelID:
                                     # Asks the user for the intended message and updates the continued command on the database with the channel ID
                                     resp.message("OfficeConnected: Type your message")
-                                    sql.updateVal(email, 'ContinuedCommand', 'CHANNEL"%s"%s' % (channelID, command))
+                                    sql.updateVal(email, 'ContinuedCommand', 'CHANNEL%s"%s' % (channelID, command))
                                 else:
                                     # User has selected an invalid channel and an error is sent to the user
                                     resp.message("OfficeConnected: That channel name is invalid. Make sure it's correctly spelt (case sensetive). If you wish to cancel this command, reply with 'CANCELCMD'")
@@ -186,9 +193,8 @@ def sms_reply():
                             elif userData[7][:7] == "CHANNEL":
                                 # Gets the team ID and channel ID from the stored command information on the database
                                 command = userData[7]
-                                channelID = command[command.find('"') + 1 : command.find('"', command.find('"') + 1)]
-                                command = command[command.find('"', command.find('"') + 1) + 1 :]
-                                teamID = command[command.find('"') + 1 : command.rfind('"')]
+                                channelID = command[7 : command.find('"')]
+                                teamID = command[command.find('"') + 5 :]
 
                                 # Makes a POST request via Microsoft Graphs API with the message to the proper channel and team on Teams
                                 messagePost = requests.post(
@@ -205,11 +211,68 @@ def sms_reply():
                                 if 'error' in messagePost:
                                     # Tells the user that the POST request wasn't able to send the message
                                     resp.message("OfficeConnected: We're sorry, we weren't able to send the message.")
-                                    resp.messgae("Please type your message, or if you'd like to cancel this command, reply with 'CANCELCMD'")
+                                    resp.message("Please type your message, or if you'd like to cancel this command, reply with 'CANCELCMD'")
                                 else:
                                     # Tells the user that the message has been sent and that the continuing command has been cleared from the database
                                     resp.message("OfficeConnected: Alright, message sent.")
                                     sql.updateVal(email, 'ContinuedCommand', None)
+                            
+                            # User wishes to send an email and has already intialized command
+                            elif userData[7] == 'EMAIL':
+                                # Responds confirming choice and asking for subject of the email
+                                resp.message("OfficeConnected: Alright, what is the subject of the email?")
+                                
+                                # Updates continuing command to include email of receiver
+                                sql.updateVal(email, 'ContinuedCommand', 'TO%s' % message)
+                            
+                            # User wishes to send an email and has already selected an email to send to and selecting a subject
+                            elif userData[7][:2] == 'TO':
+                                # Detect if unsupported character in subject name (using ~ to seperate subject with email)
+                                if "~" in message:
+                                    resp.message("OfficeConnected: Unfortunately, we're unable to support the character '~' over SMS, please retype your subject line and try again")
+                                else:
+                                    # Responds confirming subject and asking for the body of email
+                                    resp.message("OfficeConnected: Alright, what would you like included in your email?")
+
+                                    # Updates continuing command to include subject of email
+                                    sql.updateVal(email, 'ContinuedCommand', 'SUBJECT%s~%s' % (message, userData[7]))
+                            
+                            # Users wishes to send an email and everything is already set to send email
+                            elif userData[7][:7] == 'SUBJECT':
+                                # Gets the subject of email and who the email is being sent to
+                                subject = userData[7][7:userData[7].find("~")]
+                                toEmail = userData[7][userData[7].find("~") + 3 :]
+
+                                # Makes a POST request to the email with all the information
+                                emailPost = requests.post(
+                                    app_config.ENDPOINT + '/me/sendMail',
+                                    headers={'Authorization': 'Bearer ' + token},
+                                    json={
+                                        "message": {
+                                            "subject": subject,
+                                            "body": {
+                                                "contentType": "Text",
+                                                "content": message
+                                            },
+                                            "toRecipients": [
+                                                {
+                                                    "emailAddress": {
+                                                        "address": toEmail
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    }
+                                )
+
+                                # Checks if the HTTP request was successful, or else outputs an error
+                                if emailPost.status_code == 202:
+                                    resp.message("OfficeConnected: Alright, email sent.")
+                                else:
+                                    resp.message("OfficeConnected: We're sorry, we weren't able to send your email. Please try again")
+
+                                # Tells database to erase ContinuedCommand
+                                sql.updateVal(email, 'ContinuedCommand', None)
 
                         # Command to intialize continuing command regarding sending a message to Microsoft Teams
                         elif message.upper() == 'MESSAGE':
@@ -233,6 +296,14 @@ def sms_reply():
                             # Updates the database that the user intends to have a continuing command
                             sql.updateVal(email, 'ContinuedCommand', 'MESSAGE')
 
+                        # Command to intialize continuing command regarding sending an email
+                        elif message.upper() == 'EMAIL':
+                            if emailOverSMS:
+                                sql.updateVal(email, 'ContinuedCommand', 'EMAIL')
+                                resp.message("OfficeConnected: Who would you like to email?")
+                            else:
+                                resp.message("OfficeConnected: You have disabled email over SMS. To enable this command, visit https://officeconnect.azurewebsites.net and enable email over SMS")
+
                         # Error message to the user trying to link phone despite having phone already linked to their account
                         elif message.upper() == 'LINK':
                             resp.message("OfficeConnected: You already have your phone number linked, no need to link it again. If you wish to unlink your phone, reply with 'UNLINK'.")
@@ -246,12 +317,8 @@ def sms_reply():
 
                         # Tells the user a list of commands
                         elif message.upper() == 'CMD':
-                            print("List of commands here....")
-                            #resp.message()
-
-                        # User wishes to intialize a continuing command regarding sending an email
-                        elif message.upper() == 'EMAIL':
-                            print("do something with emails")
+                            resp.message("OfficeConnected: 'UNLINK' to unlink your phone number from your account, 'EMAIL' to send emails, 'MESSAGE' to send a message to Teams")
+                            resp.message("'CANCELCMD' to cancel a continuing command. For more help, visit https://officeconnected.azurewebsites.net")
 
                         # User inputted an invalid command and error is spit out
                         else:
@@ -399,7 +466,7 @@ def index():
     # Renders the HTML, with htmlArguments as it's arguments
     return render_template('home.html', **htmlArguments)
 
-# Functions getTeamMeetings and getTeamMessages have the exact same parameters
+# Functions getTeamMeetings, getTeamMessages and getEmailsOverSMS have the exact same parameters
 # token is the user's access token
 # phoneNumber is the user's phoneNumber
 # lastCheckTime is the last time the server has began checking for Teams notifications
@@ -431,17 +498,18 @@ def getTeamMeetings(token, phoneNumber, lastCheckTime, startCheckTime):
         
         # Goes through all the events (which are usually meetings on Teams) of the referenced team
         for teamsMeetings in teamsEvents['value']:
+
             # Finds the start time of the event and takes the JSON date and converts into a format recognizable in Python
             eventStartTime = datetime.datetime.strptime(teamsMeetings['start']['dateTime'], '%Y-%m-%dT%H:%M:%S.%f0')
 
-            # Finds the time of last checked and when the server begins to start checking for new updates
-            timeDifferenceFromLastChecked = int((eventStartTime - lastCheckTime).total_seconds())
-            timeDifferenceFromStartChecked = int((eventStartTime - startCheckTime).total_seconds())
-
             # Checks if the currently team meeting has yet to start from the time the server last checked for new updates
-            if timeDifferenceFromLastChecked > 0:
+            if eventStartTime > lastCheckTime:
+                # Finds the time of last checked and when the server begins to start checking for new updates
+                timeDifferenceFromLastChecked = int((eventStartTime - lastCheckTime).total_seconds())
+                timeDifferenceFromStartChecked = int((eventStartTime - startCheckTime).total_seconds())
+
                 # Checks if the the team meeting has started since the server started checking for new updates and notifys the user
-                if timeDifferenceFromStartChecked <= 0:
+                if eventStartTime <= startCheckTime:
                     send("OfficeConnected: You currently have a meeting with %s starting now" % teamName, phoneNumber)
                 else:
                     # Checks if the team meeting is less than 30 minutes ahead of the server starting to check for new updates
@@ -543,10 +611,27 @@ def getTeamMessages(token, phoneNumber, lastCheckTime, startCheckTime):
                         # Sends a notification regarding the incompatible message to the user
                         send("OfficeConnected: %s has said something on %s" % (speaker, teamName), phoneNumber)
 
+# Sends email notifications over SMS
+def getEmailOverSMS(token, phoneNumber, email, lastCheckTime, startCheckTime):
+    # Makes an GET request to get all the emails from the user
+    emails = requests.get(
+        app_config.ENDPOINT + "/me/messages",
+        headers={'Authorization' : 'Bearer ' + token},
+    ).json()
 
-
-def getEmailOverSMS(token, phoneNumber, lastCheckTime):
-    print("do something here idk")
+    # Goes through every email
+    for emailInfo in emails["value"]:
+        # Gets time stamp of when the email was sent
+        received = datetime.datetime.strptime(emailInfo["sentDateTime"], '%Y-%m-%dT%H:%M:%SZ')
+        # Checks if the email was sent between the time the server last checked for updates and when the server starting checking for updates
+        if startCheckTime >= received >= lastCheckTime:
+            # Checks if the email doesn't match the user's email and sends an SMS notification about the email
+            if emailInfo["sender"]["emailAddress"]["address"] != email:
+                send("OfficeConnected: %s has emailed you about %s" % (emailInfo["sender"]["emailAddress"]["name"], emailInfo["subject"]), phoneNumber)
+        # Checks if the email is older than the last checked time by the server
+        elif received <= lastCheckTime:
+            break
+   
 
 # Function that goes through the database to update and send data to the user
 def accessDatabase():
@@ -564,6 +649,9 @@ def accessDatabase():
                 # Gets the user's refresh token
                 refreshToken = userData[0]
                 
+                # Gets the user's email
+                email = userData[3]
+
                 # Checks if the user has a verified has a verified phone number and creates variable storing phone number if verified
                 verifiedPhone = userData[5]
                 if verifiedPhone:
@@ -572,8 +660,9 @@ def accessDatabase():
                     phoneNumber = None
                 # Checks if refresh token hasn't been flagged as invalid
                 if refreshToken:
-                    # Checks if the user has opted in to SMS notifications
+                    # Checks if the user has opted in to SMS notifications and email over SMS
                     getSMSTeamsNotifications = userData[2]
+                    emailOverSMS = userData[4]
 
                     # Attempts to get an access token
                     try:
@@ -591,8 +680,8 @@ def accessDatabase():
                             if getSMSTeamsNotifications:
                                 getTeamMessages(token['access_token'], phoneNumber, lastCheckTime, startCheckTime)
                                 getTeamMeetings(token['access_token'], phoneNumber, lastCheckTime, startCheckTime)
-                            #if rows[4]:
-                                #getEmailOverSMS(token['access_token'], phoneNumber, lastCheckTime)
+                            if emailOverSMS:
+                                getEmailOverSMS(token['access_token'], phoneNumber, email, lastCheckTime, startCheckTime)
                     else:
                         # If code does contain an error, tells user about the error (if phone number is specified and verified) and updates refresh token to be invalid
                         if phoneNumber:
