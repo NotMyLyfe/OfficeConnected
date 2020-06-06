@@ -3,7 +3,7 @@
 # Web app that can interact with Microsoft 365 services directly from SMS
 # Can receive Microsoft Teams notifications, send Teams messages, receive/send emails
 
-import uuid, requests, msal, app_config, pyodbc, sql, multiprocessing, os, random, string, threading, datetime
+import uuid, requests, msal, app_config, pyodbc, sql, multiprocessing, os, random, string, threading, datetime, time
 from flask import Flask, render_template, session, request, redirect, url_for
 from flask_session import Session
 from twilio.twiml.messaging_response import MessagingResponse
@@ -690,6 +690,9 @@ def accessDatabase():
                         break
             # Updates last check time to become last checked time
             lastCheckTime = startCheckTime
+
+            # Setting up 1/2 sec delay to allow small gaps for SQL input
+            time.sleep(0.5)
         except:
             pass
         
@@ -725,7 +728,7 @@ def authorized():
 
     # Inserts user information into SQL database
     sql.insert(_get_token_from_cache(app_config.SCOPE)['refresh_token'], session["user"]["preferred_username"])
-
+    
     # Redirects user back to index
     return redirect(url_for("index"))
 
