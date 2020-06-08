@@ -7,7 +7,7 @@ import uuid, requests, msal, app_config, pyodbc, sql, multiprocessing, os, rando
 from flask import Flask, render_template, session, request, redirect, url_for
 from flask_session import Session
 from twilio.twiml.messaging_response import MessagingResponse
-from twilioSend import send
+from twilio.rest import Client
 
 # Creates Flask app and session with config
 app = Flask(__name__)
@@ -19,7 +19,17 @@ Session(app)
 # OAuth can only be run on a secure connection, but secure connections can't be done to localhost
 protocolScheme = 'https'
 
-
+# SMS messaging service to a phone number from the server
+def send(text, to):
+    # Creates Twilio client process with TWILIOSID and TWILIOAUTH environment variables
+    client = Client(os.getenv("TWILIOSID"), os.getenv("TWILIOAUTH"))
+    
+    # Sends message with body text, from phone number registered under account
+    message = client.messages.create(
+            body = text,
+            from_='+18449612701',
+            to='+1'+str(to)
+        )
 
 # POST request from Twilio to server
 @app.route("/sms", methods=['POST'])
