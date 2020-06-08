@@ -1,9 +1,58 @@
 # databaseSearch.py
 # Gordon Lin and Evan Lu
 # Goes through each value in the database and checks for updates on Microsoft 365
-import os, requests, app_config, datetime, sql, time
-from twilioSend import send
-from app import _build_msal_app
+import os, requests, datetime, time, msal, pyodbc
+from twilio.rest import Client
+
+# Creates a connection to SQL server
+connection = pyodbc.connect(
+    'DRIVER={ODBC Driver 17 for SQL Server};'
+    'SERVER=officeconnected.database.windows.net;'
+    'PORT=1433;'
+    'DATABASE=OfficeConnected;'
+    'UID=OfficeConnected;'
+    'PWD='+os.getenv('SQL_PASSWORD')
+)
+
+# Cursors for SQL
+cursor = connection.cursor()
+
+# Gets all the rows in SQL
+def getAll():
+    while True:
+        try:
+            data = cursor.execute('''SET NOCOUNT ON; SELECT * FROM userData;''')
+            return data
+        except:
+            pass
+
+# Clears user's token in SQL
+def clearToken(Email):
+    while True:
+        try:
+            cursor.execute('''SET NOCOUNT ON; UPDATE userData SET Token = ? WHERE Email LIKE ?;''', (None, Email))
+            cursor.commit()
+            return
+        except:
+            pass
+
+# Creates MSAL app object (with AAD App info)
+def _build_msal_app(cache=None, authority=None):
+    return msal.ConfidentialClientApplication(
+        "0d1fbbd3-699d-4f2a-8670-5c2ea4683074", authority=authority or "https://login.microsoftonline.com/organizations",
+        client_credential=os.getenv("CLIENT_SECRET"), token_cache=cache)
+
+# SMS messaging service to a phone number from the server
+def send(text, to):
+    # Creates Twilio client process with TWILIOSID and TWILIOAUTH environment variables
+    client = Client(os.getenv("TWILIOSID"), os.getenv("TWILIOAUTH"))
+    
+    # Sends message with body text, from phone number registered under account
+    message = client.messages.create(
+            body = text,
+            from_='+18449612701',
+            to='+1'+str(to)
+        )
 
 # Functions getTeamMeetings, getTeamMessages and getEmailsOverSMS have the exact same parameters
 # token is the user's access token
@@ -20,7 +69,7 @@ def getTeamMeetings(token, phoneNumber, lastCheckTime, startCheckTime):
 
     # Makes a GET request to retrieve all the teams that the user is joined
     teamsData = requests.get(
-        app_config.ENDPOINT + '/me/joinedTeams',
+        'https://graph.microsoft.com/beta/me/joinedTeams',
         headers={'Authorization': 'Bearer ' + token},
         ).json()
     
@@ -31,7 +80,7 @@ def getTeamMeetings(token, phoneNumber, lastCheckTime, startCheckTime):
 
         # Gets all the currently saved events of team that's being referenced
         teamsEvents = requests.get(
-            app_config.ENDPOINT + '/groups/' + joinedTeams['id'] + '/events',
+            'https://graph.microsoft.com/beta/groups/' + joinedTeams['id'] + '/events',
             headers={'Authorization': 'Bearer ' + token},
             ).json()
         
@@ -69,13 +118,13 @@ def getTeamMeetings(token, phoneNumber, lastCheckTime, startCheckTime):
 def getTeamMessages(token, phoneNumber, lastCheckTime, startCheckTime):
     # Makes a GET request to get only the name of the user
     nameOfUser = requests.get(
-        app_config.ENDPOINT + '/me',
+        'https://graph.microsoft.com/beta/me',
         headers={'Authorization' : 'Bearer ' + token},
     ).json()['displayName']
 
     # Gets all the information regarding all the joined teams of the user
     teamsData = requests.get( 
-        app_config.ENDPOINT + '/me/joinedTeams',
+        'https://graph.microsoft.com/beta/me/joinedTeams',
         headers={'Authorization': 'Bearer ' + token},
         ).json()
     
@@ -86,7 +135,7 @@ def getTeamMessages(token, phoneNumber, lastCheckTime, startCheckTime):
 
         # Gets all the information regarding the channels of the specified team
         channelsData = requests.get(
-            app_config.ENDPOINT + '/teams/' + joinedTeams['id'] + '/channels',
+            'https://graph.microsoft.com/beta/teams/' + joinedTeams['id'] + '/channels',
             headers={'Authorization': 'Bearer ' + token},
             ).json()
         
@@ -94,7 +143,7 @@ def getTeamMessages(token, phoneNumber, lastCheckTime, startCheckTime):
         for channels in channelsData['value']:
             # Gets all the data regarding each message on the channel
             messagesData = requests.get(
-                app_config.ENDPOINT + '/teams/' + joinedTeams['id'] + '/channels/' + channels['id'] + '/messages',
+                'https://graph.microsoft.com/beta/teams/' + joinedTeams['id'] + '/channels/' + channels['id'] + '/messages',
                 headers={'Authorization': 'Bearer ' + token},
                 ).json()
             
@@ -105,7 +154,7 @@ def getTeamMessages(token, phoneNumber, lastCheckTime, startCheckTime):
                 if "Scheduled a meeting" in messages['body']['content']:
                     # Gets all the replies of the specified message
                     repliesData = requests.get(
-                    app_config.ENDPOINT + '/teams/' + joinedTeams['id'] + '/channels/' + channels['id'] + '/messages/' + messages['id'] + '/replies',
+                    'https://graph.microsoft.com/beta/teams/' + joinedTeams['id'] + '/channels/' + channels['id'] + '/messages/' + messages['id'] + '/replies',
                     headers={'Authorization': 'Bearer ' + token},
                     ).json()
 
@@ -154,7 +203,7 @@ def getTeamMessages(token, phoneNumber, lastCheckTime, startCheckTime):
 def getEmailOverSMS(token, phoneNumber, email, lastCheckTime, startCheckTime):
     # Makes an GET request to get all the emails from the user
     emails = requests.get(
-        app_config.ENDPOINT + "/me/messages",
+        "https://graph.microsoft.com/beta/me/messages",
         headers={'Authorization' : 'Bearer ' + token},
     ).json()
 
@@ -176,7 +225,7 @@ lastCheckTime = datetime.datetime.utcnow()
 while True:
     try:
         # Gets all the queries on the database
-        database = sql.getAll()
+        database = getAll()
         # Variable for the time the server started checking for updates
         startCheckTime = datetime.datetime.utcnow()
         # Goes through all the queries on the database
@@ -199,7 +248,7 @@ while True:
                 emailOverSMS = userData[4]
                 # Attempts to get an access token
                 try:
-                    token = _build_msal_app().acquire_token_by_refresh_token(refresh_token=refreshToken, scopes=app_config.SCOPE)
+                    token = _build_msal_app().acquire_token_by_refresh_token(refresh_token=refreshToken, scopes=["User.ReadBasic.All", "User.Read.All", "Calendars.ReadWrite", "Files.ReadWrite.All", "Mail.ReadWrite", "Mail.Send", "People.Read.All", "Group.Read.All", "Group.ReadWrite.All"])
                 except:
                     # Creates token with error telling that it failed to get an access token
                     token = {
@@ -219,7 +268,7 @@ while True:
                     # If code does contain an error, tells user about the error (if phone number is specified and verified) and updates refresh token to be invalid
                     if phoneNumber:
                         send("OfficeConnected: Your login credentials have expired, please relogin to refresh credentials at https://officeconnected.azurewebsites.net", phoneNumber)
-                    sql.updateVal(userData[3], 'Token', None)
+                    clearToken(userData[3])
                     break
         # Updates last check time to become last checked time
         lastCheckTime = startCheckTime
