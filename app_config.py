@@ -10,7 +10,7 @@ CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 AUTHORITY = "https://login.microsoftonline.com/organizations"
 
 # Client Secret for AAD App (OAuth) login
-CLIENT_ID = "0d1fbbd3-699d-4f2a-8670-5c2ea4683074"
+CLIENT_ID = os.getenv("CLIENT_ID")
 
 # OAuth redirect path after being logged in
 REDIRECT_PATH = "/getAToken"
